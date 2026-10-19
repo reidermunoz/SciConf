@@ -25,7 +25,7 @@ export default function Sidebar({ open, onClose }) {
             >
                 <div className="flex h-16 items-center justify-between px-6">
                     <span className="text-xl font-bold text-gray-800">
-                        Conf<span className="text-brand-500">Manager</span>
+                        Sci<span className="text-brand-500">Conf</span>
                     </span>
                     <button className="text-gray-500 lg:hidden" onClick={onClose} aria-label="Cerrar menú">
                         <CloseIcon />
