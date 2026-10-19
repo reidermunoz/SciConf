@@ -1,0 +1,29 @@
+# Secretos
+.env
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+db.sqlite3
+
+# Frontend (además de frontend/.gitignore)
+node_modules/
+dist/
+
+# Archivos temporales de Office
+~$*
+
+# Editores / sistema
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Documentos del curso y notas personales (no son código)
+/README.md
+/Punto1.docx
+/*.pdf
+.venv
+venv/

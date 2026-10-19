@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* Colores de marca (tomados de la paleta de TailAdmin, licencia MIT) */
+@theme {
+  --color-brand-50: #ecf3ff;
+  --color-brand-500: #465fff;
+  --color-brand-600: #3641f5;
+}
