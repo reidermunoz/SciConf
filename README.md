@@ -36,7 +36,7 @@ SciConf/
 ### 1. Clonar el repositorio y ubicarse en el proyecto
 
 ```bash
-git clone https://github.com/tu-usuario/SciConf.git
+git clone https://github.com/reidermunoz/SciConf.git
 cd SciConf
 ```
 
