@@ -21,7 +21,6 @@ Asegúrate de contar con lo siguiente instalado en tu equipo:
 SciConf/
 ├── crud/                # Configuración principal de Django (settings, urls, wsgi, asgi)
 ├── users/               # Aplicación Django de usuarios, autenticación y roles
-├── products/            # Aplicación Django de categorías y artículos/productos
 ├── frontend/            # Aplicación Frontend desarrollada con React, Vite y TailwindCSS
 ├── manage.py            # Comando CLI para gestión de Django
 ├── requirements.txt     # Dependencias de Python
@@ -157,8 +156,6 @@ La API REST del backend responde bajo el prefijo `/api/v1/`:
 |---|---|---|
 | **Usuarios** | `/api/v1/users/` | CRUD de usuarios |
 | **Roles** | `/api/v1/roles/` | Listado y consulta de roles |
-| **Categorías** | `/api/v1/categories/` | Gestión de categorías y líneas temáticas |
-| **Productos / Artículos** | `/api/v1/products/` | CRUD de artículos y publicaciones |
 | **Admin Django** | `/admin/` | Panel administrativo nativo de Django |
 
 ---
