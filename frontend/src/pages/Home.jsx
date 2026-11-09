@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ChartIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon } from "../components/layout/icons";
 
 const modules = [
@@ -17,6 +17,13 @@ const stages = [
 ];
 
 export default function Home() {
+    const navigate = useNavigate();
+
+    const handleLogout = () => {
+        localStorage.removeItem("user"); // Borra la sesion
+        navigate("/login");              // Redirige al login
+    };
+
     return (
         <div className="flex flex-col gap-6">
             {/* Bienvenida */}
@@ -25,10 +32,19 @@ export default function Home() {
                 <p className="mt-2 max-w-2xl text-white/90">
                     Gestiona la parte científica de la conferencia: comité, autores, artículos y agenda del evento.
                 </p>
-                <Link to="/dashboard"
-                    className="mt-5 inline-block rounded-lg bg-white px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50">
-                    Ver dashboard
-                </Link>
+                <div className="mt-5 flex gap-3">
+                    <Link to="/dashboard"
+                        className="inline-block rounded-lg bg-white px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50">
+                        Ver dashboard
+                    </Link>
+
+                    <button 
+                        type="button"
+                        onClick={handleLogout}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition">
+                        Cerrar Sesión (Pruebas)
+                    </button>
+                </div>
             </section>
 
             {/* Accesos a los módulos */}
@@ -68,5 +84,5 @@ export default function Home() {
                 </ol>
             </section>
         </div>
-    )
+    );
 }

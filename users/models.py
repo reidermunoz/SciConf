@@ -13,3 +13,4 @@ class User(AbstractUser):
     role = models.ForeignKey(Role, on_delete=models.CASCADE, null=True, blank=True)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=20, blank=True, null=True)
+    institution = models.CharField(max_length=150, blank=True, null=True)
