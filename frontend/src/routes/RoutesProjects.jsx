@@ -6,6 +6,7 @@ import Users from '../pages/users/Users';
 import CreateUser from '../pages/users/CreateUser';
 import LoginForm from '../pages/auth/LoginForm';
 import RegisterForm from '../pages/auth/RegisterForm';
+import ForgotPassword from '../pages/auth/ForgotPassword';
 import {Navigate, Outlet } from "react-router-dom";
 
 
@@ -24,6 +25,7 @@ export default function RoutesProjects() {
                  {/*Ruta publica sin el menu encabezado*/}
                 <Route path="/login" element={<LoginForm />} />
                 <Route path="/register" element={<RegisterForm />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
 
                 {/* Páginas con menú lateral y encabezado */}
                 <Route element = {<ProtectedRoute />}>

@@ -24,3 +24,13 @@ export const deleteUser = async (id) => {
 export const getRoles = async () => {
     return await api.get('/roles/');
 }
+
+// Envia la solicitud de pin por correo
+export const requestPasswordReset = async (email) => {
+    return await api.post('/password-reset/request/', { email });
+}
+
+// Valida pin y actualiza contrasena
+export const confirmPasswordReset = async (data) => {
+    return await api.post('/password-reset/confirm/', data);
+}

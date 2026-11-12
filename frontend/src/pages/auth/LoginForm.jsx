@@ -71,6 +71,10 @@ export default function LoginForm() {
                 />
             </div>
 
+            <div>
+                <Link to="/forgot-password">Olvidaste tu contrasena?</Link>
+            </div>
+
             {/*Boton de envio*/}
             <button type="submit" disabled={loading}>
                 {loading ? "Ingresando..." : "Ingresar"}
