@@ -67,13 +67,13 @@ class RequestPasswordResetView(APIView):
 
         # Envia el correo mediante el servidor SMTP de Gmail/Google workspace.
         send_mail(
-            subject='Codigo de recuperacion de contrasena SciConf',
+            subject='Código de recuperación de contraseña SciConf',
             message=(
                 f"Hola {user.first_name or user.username},\n\n"
-                f"Hiciste una solicitud para restablecer tu contrasena en SciConf.\n"
-                f"Tu codigo de verificacion es:\n\n"
+                f"Hiciste una solicitud para restablecer tu contraseña en SciConf.\n"
+                f"Tu código de verificación es:\n\n"
                 f"      {code}\n\n"
-                f"Este codigo es valido durante 15 minutos. \n"
+                f"Este código es válido durante 15 minutos. \n"
                 f"Si no realizaste esta solicitud, puedes ignorar este correo de forma segura."
             ),
             from_email=None,
@@ -81,11 +81,11 @@ class RequestPasswordResetView(APIView):
             fail_silently=False,
         )
 
-        return Response({'message': 'Se ha enviado un codigo de 6 digitos a tu correo electronico.'}, status=status.HTTP_200_OK)
+        return Response({'message': 'Se ha enviado un código de 6 dígitos a tu correo electrónico.'}, status=status.HTTP_200_OK)
 
 
 class ConfirmPasswordResetView(APIView):
-    """Paso 2: Valida el pin y actualiza la contrasena en la base de datos"""
+    """Paso 2: Valida el pin y actualiza la contraseña en la base de datos"""
     def post(self, request):
         email = request.data.get('email')
         code = request.data.get('code')
@@ -93,13 +93,13 @@ class ConfirmPasswordResetView(APIView):
 
         if not email or not code or not new_password:
             return Response(
-                {'error': 'Todos los campos (correo, PIN y nueva contrasena) son requeridos.'},
+                {'error': 'Todos los campos (correo, PIN y nueva contraseña) son requeridos.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if len(new_password) < 8:
             return Response(
-                {'error': 'La nueva contrasena debe tener al menos 8 caracteres.'},
+                {'error': 'La nueva contraseña debe tener al menos 8 caracteres.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -113,7 +113,7 @@ class ConfirmPasswordResetView(APIView):
 
         if not reset_code or not reset_code.is_valid():
             return Response(
-                {'error': 'El codigo es invalido o ya ha expirado.'},
+                {'error': 'El código es inválido o ya ha expirado.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -125,4 +125,4 @@ class ConfirmPasswordResetView(APIView):
         reset_code.is_used = True
         reset_code.save()
 
-        return Response({'message': 'Tu contrasena ha sido restablecida exitosamente.'}, status=status.HTTP_200_OK)
+        return Response({'message': 'Tu contraseña ha sido restablecida exitosamente.'}, status=status.HTTP_200_OK)
