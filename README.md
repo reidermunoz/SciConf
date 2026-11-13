@@ -113,13 +113,17 @@ DB_PASSWORD=tu_password_de_base_de_datos
 DB_HOST=aws-0-us-east-1.pooler.supabase.com
 DB_PORT=5432
 
-# Configuración de Correo Electrónico (SMTP)
+# Configuración de Correo Electrónico (SMTP - Remitente del Sistema)
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
-EMAIL_HOST_USER=tucorreo@gmail.com
-EMAIL_HOST_PASSWORD=tu_contraseña_de_aplicacion_16_caracteres
-DEFAULT_FROM_EMAIL=SciConf <tucorreo@gmail.com>
+EMAIL_HOST_USER=correo_general_del_proyecto@gmail.com
+EMAIL_HOST_PASSWORD=contraseña_de_aplicacion_del_proyecto
+DEFAULT_FROM_EMAIL=SciConf <correo_general_del_proyecto@gmail.com>
+
+# (Opcional) Si un desarrollador no desea enviar correos reales en local,
+# puede descomentar la siguiente línea para imprimir el PIN en su terminal:
+# EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 ```
 
 > 🔑 **Notas de configuración del `.env`:**
@@ -127,7 +131,10 @@ DEFAULT_FROM_EMAIL=SciConf <tucorreo@gmail.com>
 >    ```powershell
 >    python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 >    ```
-> 2. **`EMAIL_HOST_PASSWORD` (Gmail):** Requiere una **Contraseña de Aplicación** de 16 caracteres generada desde tu cuenta de Google (*Gestionar cuenta ➔ Seguridad ➔ Verificación en dos pasos ➔ Contraseñas de aplicaciones*). Escríbela continua sin espacios.
+> 2. **Correo centralizado del proyecto (`EMAIL_HOST_*`):**
+>    - Para evitar que cada integrante configure su cuenta personal, el equipo cuenta con un **correo centralizado del sistema** cuyas credenciales (`EMAIL_HOST_USER` y `EMAIL_HOST_PASSWORD`) se comparten internamente para que todos usen el mismo remitente.
+>    - `EMAIL_HOST_PASSWORD` corresponde a la **Contraseña de Aplicación** de 16 caracteres generada en la cuenta de Google del proyecto (sin espacios).
+>    - Si algún miembro del equipo solo está trabajando en otras áreas (como vistas o maquetación) y no necesita enviar correos reales, puede activar `EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend` para ver los PIN de prueba en su propia consola.
 
 #### D. Ejecutar migraciones en la base de datos
 
