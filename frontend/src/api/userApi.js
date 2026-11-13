@@ -1,8 +1,7 @@
 import axios from 'axios';
-import { exactOptional } from 'zod';
 
 const api = axios.create({
-    baseURL: 'http://localhost:8000/api/v1/',
+    baseURL: `http://${window.location.hostname}:8000/api/v1/`,
 });
 
 export const loginUser = async (credentials) => {
