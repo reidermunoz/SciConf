@@ -12,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'phone', 'role']
+        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'phone', 'institution', 'role']
 
     def create(self, validated_data):
         # create_user guarda la contraseña cifrada (hash), no en texto plano
