@@ -2,13 +2,16 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import render
-from rest_framework import viewsets
+from rest_framework import viewsets, permissions, status
 from .models import User, Role
 from .serializers import UserSerializer, RoleSerializer
+from .permissions import IsAdminOrCommittee, IsAdminUser, get_role_name, ADMIN
+from django.db import models
 
 import random 
 from django.core.mail import send_mail
 from .models import User, Role, PasswordResetCode
+from rest_framework_simplejwt.tokens import RefreshToken
 
 
 # Create your views here.
@@ -17,21 +20,32 @@ class LoginView(APIView):
     def post(self, request):
         identifier = request.data.get('email') or request.data.get('username')
         password = request.data.get('password')
+
         if not identifier or not password:
             return Response(
                 {'error': 'Debes ingresar tu correo/usuario y contraseña.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
         # Busca por correo o por username
         user = User.objects.filter(email=identifier).first() or User.objects.filter(username=identifier).first()
         if user and user.check_password(password):
+
+            #Genera los tokens JWT para este usuario
+            refresh = RefreshToken.for_user(user)
+
             return Response({
-                'id': user.id,
-                'username': user.username,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': user.role.name if user.role else None,
+                'access': str(refresh.access_token),  # Token de acceso (8h)
+                'refresh': str(refresh),
+
+                'user' : {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'role': user.role.name if user.role else None,
+                }
             }, status=status.HTTP_200_OK)
         return Response(
             {'error': 'Credenciales inválidas. Revisa el correo y la contraseña.'},
@@ -41,6 +55,71 @@ class LoginView(APIView):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+
+    def get_queryset(self):
+        """
+        Filtros disponibles:
+        - ?role=Autor               → filtra por nombre de rol
+        - ?search=juan              → busca en nombre, apellido o email
+        - ?role=Autor&search=juan   → ambos filtros combinados
+        """
+        queryset = User.objects.select_related('role').all()
+
+        role = self.request.query_params.get('role')
+        search = self.request.query_params.get('search')
+        if role:
+            queryset = queryset.filter(role__name__icontains=role)
+
+        if search:
+            queryset = queryset.filter(
+                models.Q(first_name__icontains=search) |
+                models.Q(last_name__icontains=search)  |
+                models.Q(email__icontains=search)      |
+                models.Q(username__icontains=search)
+            )
+
+        return queryset
+
+    def get_permissions(self):
+        if self.action == 'create':
+            # Registro: público, cualquiera puede crear cuenta
+            permission_classes = []
+        elif self.action in ('list', 'retrieve'):
+            # Listar/consultar: solo usuarios autenticados
+            permission_classes = [permissions.IsAuthenticated]
+        elif self.action in ('update', 'partial_update'):
+            # Editar: autenticado (la lógica de "propio usuario" va en update())
+            permission_classes = [permissions.IsAuthenticated]
+        else:
+            # destroy: solo Admin o Comité
+            permission_classes = [permissions.IsAuthenticated, IsAdminOrCommittee]
+        return [p() for p in permission_classes]
+
+    def has_object_permission_to_update(self, request, obj):
+        """Puede editar si es el propio usuario O es Admin/Comité."""
+        role = get_role_name(request.user)
+        return obj == request.user or role in (ADMIN, 'Miembro Comité Científico')
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        # Verifica permiso de objeto
+        if not self.has_object_permission_to_update(request, instance):
+            return Response(
+                {'error': 'No tienes permiso para editar este usuario.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        # Solo el Admin puede cambiar el campo 'role'
+        if 'role' in request.data and get_role_name(request.user) != ADMIN:
+            return Response(
+                {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
 class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.all()

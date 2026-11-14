@@ -15,6 +15,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from datetime import timedelta
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -150,3 +152,19 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.AllowAny',  # Por defecto libre; cada view define sus permisos
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),   # El token dura 8 horas
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),   # El refresh dura 7 días
+    'ROTATE_REFRESH_TOKENS': True,                 # Cada refresh genera un nuevo refresh token
+    'BLACKLIST_AFTER_ROTATION': False,             # No requiere app adicional
+    'AUTH_HEADER_TYPES': ('Bearer',),              # El frontend envía: Authorization: Bearer <token>
+}

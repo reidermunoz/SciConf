@@ -20,7 +20,9 @@ export default function Home() {
     const navigate = useNavigate();
 
     const handleLogout = () => {
-        localStorage.removeItem("user"); // Borra la sesion
+        localStorage.removeItem("user");
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
         navigate("/login");              // Redirige al login
     };
 

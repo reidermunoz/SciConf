@@ -23,8 +23,12 @@ export default function LoginForm() {
         
         try {
             const response = await loginUser(credentials);
+            const {access, refresh, user} = response.data;
+
             // Guardamos la sesion del usuario en el navegador.
-            localStorage.setItem("user", JSON.stringify(response.data));
+            localStorage.setItem('access_token', access);
+            localStorage.setItem('refresh_token', refresh);
+            localStorage.setItem('user', JSON.stringify(user));
 
             // Redirigimos a Home
             navigate("/");
