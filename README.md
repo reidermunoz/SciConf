@@ -1,6 +1,6 @@
 # SciConf
 
-Sistema web para la gestión integral de conferencias científicas (**SciConf**), que incluye autenticación de usuarios, gestión de comités, autores, ponencias y agenda del evento.
+Sistema web para la gestión integral de conferencias científicas (**SciConf**), que incluye autenticación de usuarios basada en roles, tokens JWT, verificación CAPTCHA, gestión de comités, autores, ponencias y agenda del evento.
 
 ---
 
@@ -21,23 +21,27 @@ Asegúrate de contar con lo siguiente instalado en tu equipo:
 ```text
 SciConf/
 ├── crud/                      # Configuración principal de Django (settings, urls, wsgi, asgi)
-├── users/                     # App Django: usuarios, roles, autenticación y recuperación de PIN
-│   ├── migrations/            # Historial de migraciones de base de datos
+├── users/                     # App Django: usuarios, roles, JWT y recuperación de PIN
+│   ├── migrations/            # Historial de migraciones (incluye 0004_seed_roles)
 │   ├── models.py              # Modelos: User, Role, PasswordResetCode
-│   ├── serializers.py         # Serializadores DRF
-│   ├── urls.py                # Rutas de la API (login, reset, users, roles)
-│   └── views.py               # Vistas y controladores de autenticación y usuarios
+│   ├── permissions.py         # Clases de permisos DRF por rol (IsAdminUser, IsAdminOrCommittee)
+│   ├── serializers.py         # Serializadores DRF con blindaje de roles
+│   ├── urls.py                # Rutas de la API (login, captcha, reset, users, roles)
+│   └── views.py               # Controladores de auth, captcha, usuarios y roles
 ├── frontend/                  # Frontend en React 19 + Vite + TailwindCSS
+│   ├── public/                # Favicon e imágenes públicas estáticas (SciConfLogo.png)
 │   ├── src/
-│   │   ├── api/               # Conexión con Axios (userApi.js)
-│   │   ├── components/        # Componentes reutilizables (layout, common, etc.)
+│   │   ├── api/               # Cliente Axios con interceptor JWT (userApi.js)
+│   │   ├── assets/            # Logos e imágenes del sistema (SciConfWhiteCut.png)
+│   │   ├── components/        # Componentes reutilizables (layout, header, sidebar, users)
+│   │   ├── hooks/             # Hooks personalizados (useAuth.js)
 │   │   ├── pages/
-│   │   │   ├── auth/          # LoginForm.jsx, RegisterForm.jsx, ForgotPassword.jsx
-│   │   │   ├── users/         # Vistas de gestión de usuarios
-│   │   │   └── Home.jsx       # Pantalla principal del sistema
-│   │   └── routes/            # Configuración de rutas y ProtectedRoute
+│   │   │   ├── auth/          # LoginForm.jsx (con CAPTCHA), RegisterForm.jsx, ForgotPassword.jsx
+│   │   │   ├── users/         # Users.jsx, CreateUser.jsx, Profile.jsx
+│   │   │   └── Home.jsx       # Panel principal del sistema
+│   │   └── routes/            # Configuración de rutas privadas (ProtectedRoute, ManageUsersRoute)
 ├── manage.py                  # CLI de gestión de Django
-├── requirements.txt           # Dependencias de Python
+├── requirements.txt           # Dependencias de Python (Django, DRF, SimpleJWT, psycopg2)
 ├── .env.example               # Plantilla de variables de entorno
 └── .env                       # Variables de entorno locales (NO subir a Git)
 ```
@@ -132,23 +136,26 @@ DEFAULT_FROM_EMAIL=SciConf <correo_general_del_proyecto@gmail.com>
 >    python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 >    ```
 > 2. **Correo centralizado del proyecto (`EMAIL_HOST_*`):**
->    - Para evitar que cada integrante configure su cuenta personal, el equipo cuenta con un **correo centralizado del sistema** cuyas credenciales (`EMAIL_HOST_USER` y `EMAIL_HOST_PASSWORD`) se comparten internamente para que todos usen el mismo remitente.
->    - `EMAIL_HOST_PASSWORD` corresponde a la **Contraseña de Aplicación** de 16 caracteres generada en la cuenta de Google del proyecto (sin espacios).
->    - Si algún miembro del equipo solo está trabajando en otras áreas (como vistas o maquetación) y no necesita enviar correos reales, puede activar `EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend` para ver los PIN de prueba en su propia consola.
+>    - Para evitar que cada integrante configure su cuenta personal, el equipo cuenta con un **correo centralizado del sistema** cuyas credenciales se comparten internamente.
+>    - Si no necesitas enviar correos en local, activa `EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend` para ver los códigos PIN en tu terminal.
 
 #### D. Ejecutar migraciones en la base de datos
 
-Aplica los modelos en tu base de datos (usuarios, roles y códigos de recuperación):
+Aplica los modelos y datos iniciales (incluye la creación automática de los 3 roles del sistema):
 ```bash
 python manage.py migrate
 ```
 
-#### E. Crear usuario Administrador (Superuser)
+#### E. Crear usuario y asignarse rol de Administrador
 
-Crea un superusuario para acceder al panel de Django y disponer de una cuenta de acceso inmediata:
-```bash
-python manage.py createsuperuser
-```
+1. Crea un usuario desde el registro web (`/register`) o un superusuario en terminal:
+   ```bash
+   python manage.py createsuperuser
+   ```
+2. Para asignarle el rol de **Administrador del Sistema** en la base de datos a tu cuenta:
+   ```powershell
+   python manage.py shell -c "from users.models import User, Role; u = User.objects.get(email='TU_CORREO'); u.role = Role.objects.get(name='Administrador del Sistema'); u.is_staff = True; u.is_superuser = True; u.save(); print(f'Listo: {u.email} es Administrador')"
+   ```
 
 #### F. Iniciar el servidor backend
 
@@ -181,21 +188,38 @@ La interfaz web estará disponible en: **`http://localhost:5173/`**
 
 ---
 
-## 🔐 Flujo de Autenticación y Acceso al Sistema
+## 👥 Sistema de Roles y Permisos (RBAC)
 
-La aplicación cuenta con protección de rutas (`ProtectedRoute`), lo que garantiza que solo usuarios autenticados puedan ver el panel y los módulos:
+La plataforma cuenta con 3 roles predefinidos según los requerimientos del proyecto:
 
-1. **Pantalla inicial obligatoria (`/login`):**
-   * Al abrir la aplicación en el navegador (`http://localhost:5173/`), el sistema verifica la sesión. Si no hay una sesión activa, redirige automáticamente a la pantalla de **Iniciar Sesión**.
-   * Puedes autenticarte usando tu **correo electrónico o nombre de usuario** y contraseña.
-2. **Registro de nuevos usuarios (`/register`):**
-   * Si un miembro del equipo o autor aún no tiene cuenta, puede dar clic en *"Regístrate aquí"*.
-   * El formulario valida en tiempo real datos obligatorios: Nombre, Apellido, Correo institucional/personal, Nombre de usuario, Contraseña, Confirmación de clave, Institución/Afiliación, Teléfono y Aceptación de política de tratamiento de datos.
+| Rol | Alcance y Permisos |
+|---|---|
+| **Administrador del Sistema** | Acceso total. Puede ver, crear, editar y eliminar cualquier usuario. **Único rol autorizado para cambiar o asignar roles** en la plataforma. |
+| **Miembro Comité Científico** | Puede consultar usuarios, crear nuevos miembros y autores, y eliminar usuarios. Autorizado para deshabilitar artículos y emitir avales en etapas posteriores. |
+| **Autor** | Rol por defecto para cualquier usuario registrado. Puede consultar el directorio de usuarios y **editar sus propios datos personales**. No puede crear ni eliminar otros usuarios ni alterar roles. |
+
+### Blindaje de seguridad en creación:
+- Cualquier registro público o petición no autenticada asigna forzosamente el rol **Autor**.
+- Solo peticiones autenticadas con rol `Administrador del Sistema` pueden especificar roles diferentes al crear usuarios.
+
+---
+
+## 🔐 Seguridad y Flujo de Autenticación
+
+1. **Autenticación con JWT (JSON Web Tokens):**
+   - El inicio de sesión emite un token de acceso `access_token` (duración 8 horas) y un `refresh_token` (7 días).
+   - El cliente Axios en React (`userApi.js`) incluye automáticamente la cabecera `Authorization: Bearer <token>` en todas las peticiones a la API mediante un interceptor.
+2. **Verificación con CAPTCHA en el Login:**
+   - La pantalla de login incluye un reto gráfico SVG firmado criptográficamente por Django (`/api/v1/captcha/`) con vigencia de 5 minutos.
+   - El backend valida el CAPTCHA antes de contrastar las credenciales para evitar ataques de fuerza bruta.
+   - Incluye botón para refrescar el código si resulta difícil de leer.
 3. **Recuperación de contraseña en dos pasos (`/forgot-password`):**
-   * **Paso 1 (Solicitud web):** El usuario ingresa su correo y el sistema genera un PIN criptográfico de 6 dígitos con vigencia de 15 minutos, enviado de inmediato por correo electrónico.
-   * **Paso 2 (Confirmación):** El usuario ingresa el PIN recibido y define su nueva contraseña, restableciendo su acceso al instante.
-4. **Cierre de sesión:**
-   * En la vista de inicio (`Home`) se incluye un botón para cerrar sesión y regresar al estado no autenticado.
+   - **Paso 1:** Solicitud ingresando el correo; el sistema genera un PIN criptográfico de 6 dígitos con vigencia de 15 minutos enviado vía SMTP.
+   - **Paso 2:** Validación del PIN y actualización de la nueva contraseña con hashing seguro.
+4. **Mi Perfil (`/profile`):**
+   - Cada usuario puede acceder desde la esquina superior derecha a su perfil para actualizar su nombre, apellido, teléfono e institución.
+5. **Cierre de sesión seguro:**
+   - Ubicado en el encabezado superior con cuadro de diálogo de confirmación antes de destruir la sesión y los tokens.
 
 ---
 
@@ -219,24 +243,19 @@ Para probar la plataforma en un dispositivo móvil conectado a la misma red loca
 
 La API REST del backend responde bajo el prefijo `/api/v1/`:
 
-| Módulo | Endpoint | Método | Descripción |
-|---|---|---|---|
-| **Autenticación** | `/api/v1/login/` | `POST` | Inicio de sesión con correo/usuario y contraseña |
-| **Recuperación PIN** | `/api/v1/password-reset/request/` | `POST` | Solicita envío de PIN de 6 dígitos al correo |
-| **Confirmación PIN** | `/api/v1/password-reset/confirm/` | `POST` | Valida PIN y actualiza la contraseña del usuario |
-| **Usuarios** | `/api/v1/users/` | `GET`, `POST` | Listado y creación de usuarios |
-| **Usuarios detalle** | `/api/v1/users/{id}/` | `GET`, `PUT`, `DELETE` | Detalle, actualización y eliminación de usuario |
-| **Roles** | `/api/v1/roles/` | `GET`, `POST` | Consulta y gestión de roles |
-| **Admin Django** | `/admin/` | Web | Panel administrativo nativo de Django |
-
----
-
-## 🖥️ Tecnologías utilizadas
-
-- **Backend:** Python 3, Django, Django REST Framework, `psycopg2-binary`, SMTP (Gmail / Google Workspace).
-- **Base de Datos:** PostgreSQL / Supabase.
-- **Frontend:** React 19, Vite, TailwindCSS, React Router DOM, React Hook Form, Zod, Axios.
-- **Control de Versiones:** Git & GitHub.
+| Módulo | Endpoint | Método | Descripción | Permisos |
+|---|---|---|---|---|
+| **Autenticación** | `/api/v1/login/` | `POST` | Inicia sesión con usuario/correo, password y CAPTCHA | Público |
+| **Seguridad** | `/api/v1/captcha/` | `GET` | Genera un reto visual CAPTCHA firmado | Público |
+| **Recuperación PIN** | `/api/v1/password-reset/request/` | `POST` | Solicita envío de PIN de 6 dígitos al correo | Público |
+| **Confirmación PIN** | `/api/v1/password-reset/confirm/` | `POST` | Valida PIN y actualiza la contraseña del usuario | Público |
+| **Usuarios** | `/api/v1/users/` | `GET` | Listado con filtros (`?role=` y `?search=`) | Autenticado |
+| **Usuarios** | `/api/v1/users/` | `POST` | Creación de usuario (rol forzado a Autor si no es Admin) | Abierto / Admin |
+| **Detalle Usuario** | `/api/v1/users/{id}/` | `GET` | Consulta detallada de usuario | Autenticado |
+| **Edición Usuario** | `/api/v1/users/{id}/` | `PATCH`, `PUT` | Edición de datos (propio usuario o Admin/Comité). Cambio de rol exclusivo de Admin | Autenticado |
+| **Eliminación** | `/api/v1/users/{id}/` | `DELETE` | Eliminar usuario | Admin o Comité |
+| **Roles** | `/api/v1/roles/` | `GET` | Consulta el listado de roles | Autenticado |
+| **Admin Django** | `/admin/` | Web | Panel administrativo nativo de Django | Superusuario |
 
 ---
 
@@ -244,9 +263,10 @@ La API REST del backend responde bajo el prefijo `/api/v1/`:
 
 | Error | Causa | Solución |
 |---|---|---|
-| Redirección inmediata a `/login` | Comportamiento normal por seguridad | Inicia sesión con tus credenciales o crea una cuenta en `/register`. |
+| Redirección inmediata a `/login` | Comportamiento normal de seguridad | Inicia sesión con tus credenciales o crea una cuenta en `/register`. |
+| `No se pudieron cargar los usuarios` o error `401 Unauthorized` | El token JWT expiró tras 8 horas de inactividad o el backend está apagado | Haz clic en **Salir** en el encabezado superior y vuelve a iniciar sesión; verifica que Django esté corriendo en el puerto 8000. |
+| `El código CAPTCHA es incorrecto o ha expirado` | El CAPTCHA superó los 5 minutos o se escribió mal | Haz clic en el botón circular de recarga junto al CAPTCHA para generar un código nuevo. |
 | `OperationalError: could not translate host name...` | Error de conexión a internet o host incorrecto | Verifica que `DB_HOST` en `.env` sea el de Supabase y tengas conexión a internet. |
 | `SMTPAuthenticationError` al recuperar clave | Clave de correo inválida en `.env` | En Gmail debes usar una Contraseña de Aplicación de 16 caracteres, no tu contraseña normal. |
 | `KeyError: 'SECRET_KEY'` o `KeyError: 'DB_NAME'` | Falta el archivo `.env` o variables | Asegúrate de tener el archivo `.env` configurado con base en `.env.example`. |
-| `¡Error de conexión con el backend!` en el frontend | El backend no está corriendo | Inicia el backend con `python manage.py runserver`. |
 | `Scripts deshabilitados` en PowerShell | Política de ejecución de Windows | Ejecuta `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` en PowerShell. |

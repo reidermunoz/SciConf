@@ -80,83 +80,189 @@ export default function RegisterForm() {
     });
 
     return (
-        <form onSubmit={onSubmit}>
-            <h2>Crear Cuenta</h2>
+        <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
+            <div className="w-full max-w-xl">
+                {/* Logo y Encabezado */}
+                <div className="mb-8 text-center">
+                    <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
+                        Sci<span className="text-brand-500">Conf</span>
+                    </h1>
+                    <p className="mt-2 text-sm text-gray-500">
+                        Crea tu cuenta de autor para postular y participar en la conferencia
+                    </p>
+                </div>
 
-            {/* 1. Nombre */}
-            <div>
-                <label htmlFor="firstName">Nombre</label>
-                <input id="firstName" type="text" placeholder="Ej. Juan" {...register("firstName")} />
-                {errors.firstName && <p style={{ color: "red" }}>{errors.firstName.message}</p>}
+                {/* Tarjeta del Formulario */}
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
+                    <h2 className="mb-6 text-xl font-bold text-gray-800">
+                        Crear Cuenta
+                    </h2>
+
+                    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+                        {/* 1. Nombre y Apellido en 2 columnas */}
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="firstName" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Nombre
+                                </label>
+                                <input
+                                    id="firstName"
+                                    type="text"
+                                    placeholder="Ej. Juan"
+                                    {...register("firstName")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.firstName && <p className="mt-1 text-xs text-red-500">{errors.firstName.message}</p>}
+                            </div>
+
+                            <div>
+                                <label htmlFor="lastName" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Apellido
+                                </label>
+                                <input
+                                    id="lastName"
+                                    type="text"
+                                    placeholder="Ej. Pérez"
+                                    {...register("lastName")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.lastName && <p className="mt-1 text-xs text-red-500">{errors.lastName.message}</p>}
+                            </div>
+                        </div>
+
+                        {/* 2. Correo y Nombre de usuario */}
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Correo electrónico
+                                </label>
+                                <input
+                                    id="email"
+                                    type="email"
+                                    placeholder="ejemplo@correo.com"
+                                    {...register("email")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
+                            </div>
+
+                            <div>
+                                <label htmlFor="username" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Nombre de usuario
+                                </label>
+                                <input
+                                    id="username"
+                                    type="text"
+                                    placeholder="Ej. juanperez"
+                                    {...register("username")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.username && <p className="mt-1 text-xs text-red-500">{errors.username.message}</p>}
+                            </div>
+                        </div>
+
+                        {/* 3. Contraseña y Confirmación */}
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Contraseña
+                                </label>
+                                <input
+                                    id="password"
+                                    type="password"
+                                    placeholder="Mínimo 8 caracteres"
+                                    {...register("password")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password.message}</p>}
+                            </div>
+
+                            <div>
+                                <label htmlFor="confirmPassword" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Confirmar contraseña
+                                </label>
+                                <input
+                                    id="confirmPassword"
+                                    type="password"
+                                    placeholder="Repite la contraseña"
+                                    {...register("confirmPassword")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.confirmPassword && <p className="mt-1 text-xs text-red-500">{errors.confirmPassword.message}</p>}
+                            </div>
+                        </div>
+
+                        {/* 4. Institución y Teléfono */}
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label htmlFor="institution" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Institución o afiliación
+                                </label>
+                                <input
+                                    id="institution"
+                                    type="text"
+                                    placeholder="Ej. Universidad del Valle"
+                                    {...register("institution")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.institution && <p className="mt-1 text-xs text-red-500">{errors.institution.message}</p>}
+                            </div>
+
+                            <div>
+                                <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-gray-700">
+                                    Teléfono (opcional)
+                                </label>
+                                <input
+                                    id="phone"
+                                    type="tel"
+                                    placeholder="+57 300 123 4567"
+                                    {...register("phone")}
+                                    className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                                />
+                                {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone.message}</p>}
+                            </div>
+                        </div>
+
+                        {/* 5. Aceptación de tratamiento de datos */}
+                        <div className="pt-2">
+                            <label htmlFor="dataTreatment" className="flex items-start gap-2.5 cursor-pointer">
+                                <input
+                                    id="dataTreatment"
+                                    type="checkbox"
+                                    {...register("dataTreatment")}
+                                    className="size-4 mt-0.5 rounded border-gray-300 text-brand-500 focus:ring-brand-500/20"
+                                />
+                                <span className="text-xs text-gray-600">
+                                    Acepto la política de tratamiento de datos personales para la gestión de la conferencia.
+                                </span>
+                            </label>
+                            {errors.dataTreatment && (
+                                <p className="mt-1 text-xs text-red-500">{errors.dataTreatment.message}</p>
+                            )}
+                        </div>
+
+                        {/* Botón de envío */}
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="mt-3 flex h-11 w-full items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60"
+                        >
+                            {isSubmitting ? "Registrando..." : "Registrarse"}
+                        </button>
+                    </form>
+
+                    {/* Enlace para volver al Login */}
+                    <p className="mt-6 text-center text-sm text-gray-600">
+                        ¿Ya tienes una cuenta?{" "}
+                        <Link
+                            to="/login"
+                            className="font-medium text-brand-600 hover:text-brand-500 hover:underline"
+                        >
+                            Inicia sesión aquí
+                        </Link>
+                    </p>
+                </div>
             </div>
-
-            {/* 2. Apellido */}
-            <div>
-                <label htmlFor="lastName">Apellido</label>
-                <input id="lastName" type="text" placeholder="Ej. Pérez" {...register("lastName")} />
-                {errors.lastName && <p style={{ color: "red" }}>{errors.lastName.message}</p>}
-            </div>
-
-            {/* 3. Correo electrónico */}
-            <div>
-                <label htmlFor="email">Correo electrónico</label>
-                <input id="email" type="email" placeholder="ejemplo@correo.com" {...register("email")} />
-                {errors.email && <p style={{ color: "red" }}>{errors.email.message}</p>}
-            </div>
-
-            {/* 4. Nombre de usuario */}
-            <div>
-                <label htmlFor="username">Nombre de usuario</label>
-                <input id="username" type="text" placeholder="Ej. juanperez" {...register("username")} />
-                {errors.username && <p style={{ color: "red" }}>{errors.username.message}</p>}
-            </div>
-
-            {/* 5. Contraseña */}
-            <div>
-                <label htmlFor="password">Contraseña</label>
-                <input id="password" type="password" placeholder="••••••••" {...register("password")} />
-                {errors.password && <p style={{ color: "red" }}>{errors.password.message}</p>}
-            </div>
-
-            {/* 6. Confirmación de contraseña */}
-            <div>
-                <label htmlFor="confirmPassword">Confirmar contraseña</label>
-                <input id="confirmPassword" type="password" placeholder="••••••••" {...register("confirmPassword")} />
-                {errors.confirmPassword && <p style={{ color: "red" }}>{errors.confirmPassword.message}</p>}
-            </div>
-
-            {/* 7. Institución o afiliación */}
-            <div>
-                <label htmlFor="institution">Institución o afiliación</label>
-                <input id="institution" type="text" placeholder="Ej. Universidad Nacional" {...register("institution")} />
-                {errors.institution && <p style={{ color: "red" }}>{errors.institution.message}</p>}
-            </div>
-
-            {/* 8. Teléfono */}
-            <div>
-                <label htmlFor="phone">Teléfono</label>
-                <input id="phone" type="tel" placeholder="+57 300 123 4567" {...register("phone")} />
-                {errors.phone && <p style={{ color: "red" }}>{errors.phone.message}</p>}
-            </div>
-
-            {/* 9. Aceptación de tratamiento de datos */}
-            <div>
-                <label htmlFor="dataTreatment">
-                    <input id="dataTreatment" type="checkbox" {...register("dataTreatment")} />
-                    Acepto la política de tratamiento de datos personales
-                </label>
-                {errors.dataTreatment && <p style={{ color: "red" }}>{errors.dataTreatment.message}</p>}
-            </div>
-
-            {/* Botón de envío */}
-            <button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Registrando..." : "Registrarse"}
-            </button>
-
-            {/* Enlace para volver al Login */}
-            <p>
-                ¿Ya tienes una cuenta? <Link to="/login">Inicia sesión aquí</Link>
-            </p>
-        </form>
+        </div>
     );
 }

@@ -13,6 +13,35 @@ from django.core.mail import send_mail
 from .models import User, Role, PasswordResetCode
 from rest_framework_simplejwt.tokens import RefreshToken
 
+import string
+from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
+
+class CaptchaView(APIView):
+    """
+    Genera un reto CAPTCHA visual en formato SVG firmado criptográficamente.
+    Válido por 5 minutos.
+    """
+    def get(self, request):
+        # Caracteres alfanuméricos legibles (sin 0/O ni 1/I para evitar confusiones)
+        chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
+        code = ''.join(random.choices(chars, k=5))
+        # Firma el código con TimestampSigner
+        signer = TimestampSigner(salt='sciconf-captcha')
+        captcha_key = signer.sign(code)
+        # Genera el SVG visual con ruido y rotación
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="160" height="46" viewBox="0 0 160 46">'
+            f'<rect width="100%" height="100%" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>'
+            f'<line x1="10" y1="32" x2="150" y2="14" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4"/>'
+            f'<line x1="20" y1="12" x2="140" y2="36" stroke="#cbd5e1" stroke-width="1.5"/>'
+            f'<text x="50%" y="62%" font-family="monospace" font-size="24" font-weight="bold" '
+            f'fill="#1e293b" text-anchor="middle" letter-spacing="6" transform="rotate(-2 80 23)">{code}</text>'
+            f'</svg>'
+        )
+        return Response({
+            'captcha_key': captcha_key,
+            'captcha_svg': svg,
+        }, status=status.HTTP_200_OK)
 
 # Create your views here.
 
@@ -20,25 +49,47 @@ class LoginView(APIView):
     def post(self, request):
         identifier = request.data.get('email') or request.data.get('username')
         password = request.data.get('password')
-
+        captcha_key = request.data.get('captcha_key')
+        captcha_input = (request.data.get('captcha_input') or '').strip().upper()
         if not identifier or not password:
             return Response(
                 {'error': 'Debes ingresar tu correo/usuario y contraseña.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Busca por correo o por username
+        # 1. Validación de presencia del CAPTCHA
+        if not captcha_key or not captcha_input:
+            return Response(
+                {'error': 'Por favor ingresa el código CAPTCHA de seguridad.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # 2. Validación criptográfica y de expiración (5 minutos)
+        signer = TimestampSigner(salt='sciconf-captcha')
+        try:
+            expected_code = signer.unsign(captcha_key, max_age=300)
+            if captcha_input != expected_code.upper():
+                return Response(
+                    {'error': 'El código CAPTCHA es incorrecto. Inténtalo nuevamente.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except SignatureExpired:
+            return Response(
+                {'error': 'El código CAPTCHA ha expirado. Por favor recárgalo.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except BadSignature:
+            return Response(
+                {'error': 'El código CAPTCHA es inválido.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # 3. Busca por correo o por username
         user = User.objects.filter(email=identifier).first() or User.objects.filter(username=identifier).first()
         if user and user.check_password(password):
-
-            #Genera los tokens JWT para este usuario
+            # Genera los tokens JWT para este usuario
             refresh = RefreshToken.for_user(user)
-
             return Response({
                 'access': str(refresh.access_token),  # Token de acceso (8h)
                 'refresh': str(refresh),
-
-                'user' : {
+                'user': {
                     'id': user.id,
                     'username': user.username,
                     'email': user.email,

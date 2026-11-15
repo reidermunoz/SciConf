@@ -18,6 +18,11 @@ export const loginUser = async (credentials) => {
     return await api.post('/login/', credentials);
 };
 
+// CAPTCHA
+export const getCaptcha = async () => {
+    return await api.get('/captcha/');
+}
+
 // Usuarios
 export const getUsers = async () => {
     return await api.get('/users/');
