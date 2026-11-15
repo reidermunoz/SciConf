@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { HomeIcon, ChartIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon, CloseIcon } from "./icons";
+import logoSciConf from "../../assets/SciConfWhiteCut.png";
 
 const menu = [
     { to: "/", label: "Inicio", icon: HomeIcon, end: true },
@@ -24,9 +25,13 @@ export default function Sidebar({ open, onClose }) {
                     ${open ? "translate-x-0" : "-translate-x-full"}`}
             >
                 <div className="flex h-16 items-center justify-between px-6">
-                    <span className="text-xl font-bold text-gray-800">
-                        Sci<span className="text-brand-500">Conf</span>
-                    </span>
+                    <NavLink to="/" onClick={onClose} className="flex items-center gap-2">
+                        <img
+                            src={logoSciConf}
+                            alt="SciConf Logo"
+                            className="h-10 w-auto rounded-lg object-contain"
+                        />
+                    </NavLink>
                     <button className="text-gray-500 lg:hidden" onClick={onClose} aria-label="Cerrar menú">
                         <CloseIcon />
                     </button>

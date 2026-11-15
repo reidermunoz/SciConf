@@ -10,6 +10,9 @@ class Role(models.Model):
     creaded_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def __str__(self) -> str:
+        return self.name
+
 
 class User(AbstractUser):
     role = models.ForeignKey(Role, on_delete=models.CASCADE, null=True, blank=True)
