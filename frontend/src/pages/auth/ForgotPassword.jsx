@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { requestPasswordReset, confirmPasswordReset } from "../../api/userApi";
+import PasswordInput from "../../components/common/PasswordInput";
 
 export default function ForgotPassword() {
     const navigate = useNavigate();
@@ -182,9 +183,8 @@ export default function ForgotPassword() {
                                     >
                                         Nueva contraseña
                                     </label>
-                                    <input
+                                    <PasswordInput
                                         id="newPassword"
-                                        type="password"
                                         placeholder="Mínimo 8 caracteres"
                                         value={newPassword}
                                         onChange={(e) => setNewPassword(e.target.value)}
@@ -200,9 +200,8 @@ export default function ForgotPassword() {
                                     >
                                         Confirmar nueva contraseña
                                     </label>
-                                    <input
+                                    <PasswordInput
                                         id="confirmPassword"
-                                        type="password"
                                         placeholder="Repite tu contraseña"
                                         value={confirmPassword}
                                         onChange={(e) => setConfirmPassword(e.target.value)}
