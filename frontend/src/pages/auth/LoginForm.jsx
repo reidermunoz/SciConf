@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { loginUser, getCaptcha } from "../../api/userApi";
+import PasswordInput from "../../components/common/PasswordInput";
 
 export default function LoginForm() {
     const navigate = useNavigate();
@@ -33,9 +34,10 @@ export default function LoginForm() {
         loadCaptcha();
     }, []);
     const handleChange = (e) => {
+        const { name, value } = e.target;
         setCredentials({
             ...credentials,
-            [e.target.name]: e.target.value,
+            [name]: name === "captcha_input" ? value.trim().toUpperCase() : value,
         });
     };
     const handleSubmit = async (e) => {
@@ -122,10 +124,9 @@ export default function LoginForm() {
                                     ¿Olvidaste tu contraseña?
                                 </Link>
                             </div>
-                            <input
+                            <PasswordInput
                                 id="password"
                                 name="password"
-                                type="password"
                                 placeholder="••••••••"
                                 value={credentials.password}
                                 onChange={handleChange}

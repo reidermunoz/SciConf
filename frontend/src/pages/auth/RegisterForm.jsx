@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useNavigate } from "react-router-dom";
 import { createUser } from "../../api/userApi";
+import PasswordInput from "../../components/common/PasswordInput";
 
 // 1. Esquema de validación con Zod
 const registerSchema = z.object({
@@ -167,9 +168,8 @@ export default function RegisterForm() {
                                 <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-700">
                                     Contraseña
                                 </label>
-                                <input
+                                <PasswordInput
                                     id="password"
-                                    type="password"
                                     placeholder="Mínimo 8 caracteres"
                                     {...register("password")}
                                     className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
@@ -181,9 +181,8 @@ export default function RegisterForm() {
                                 <label htmlFor="confirmPassword" className="mb-1.5 block text-sm font-medium text-gray-700">
                                     Confirmar contraseña
                                 </label>
-                                <input
+                                <PasswordInput
                                     id="confirmPassword"
-                                    type="password"
                                     placeholder="Repite la contraseña"
                                     {...register("confirmPassword")}
                                     className="h-11 w-full rounded-lg border border-gray-300 px-3.5 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
