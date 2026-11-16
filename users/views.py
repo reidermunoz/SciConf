@@ -95,6 +95,8 @@ class LoginView(APIView):
                     'email': user.email,
                     'first_name': user.first_name,
                     'last_name': user.last_name,
+                    'phone': user.phone or "",
+                    'institution': user.institution or "",
                     'role': user.role.name if user.role else None,
                 }
             }, status=status.HTTP_200_OK)
@@ -161,11 +163,15 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         # Solo el Admin puede cambiar el campo 'role'
-        if 'role' in request.data and get_role_name(request.user) != ADMIN:
-            return Response(
-                {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if 'role' in request.data:
+            new_role = request.data.get('role')
+            current_role_id = instance.role_id if instance.role else None
+            # Si se intenta cambiar el rol y no es Admin
+            if new_role != current_role_id and get_role_name(request.user) != ADMIN:
+                return Response(
+                    {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):

@@ -7,8 +7,8 @@ class RoleSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class UserSerializer(serializers.ModelSerializer):
-    # La contraseña se recibe al crear pero nunca se devuelve en las respuestas
-    password = serializers.CharField(write_only=True, min_length=8)
+    # La contraseña se recibe al crear o actualizar pero nunca se devuelve en las respuestas
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     # Muestra el nombre del rol al leer, acepta el id del rol al escribir.
     role_detail = RoleSerializer(source='role', read_only=True)
@@ -21,6 +21,16 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'phone', 'institution', 'role', 'role_detail']
+
+    def validate_password(self, value):
+        if value and len(value) < 8:
+            raise serializers.ValidationError('La contraseña debe tener mínimo 8 caracteres.')
+        return value
+
+    def validate(self, attrs):
+        if not self.instance and not attrs.get('password'):
+            raise serializers.ValidationError({'password': 'La contraseña es requerida al crear un usuario.'})
+        return attrs
 
     def create(self, validated_data):
         request = self.context.get('request')

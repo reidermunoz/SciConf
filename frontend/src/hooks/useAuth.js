@@ -7,6 +7,11 @@ export const ROLES = {
     AUTHOR: "Autor",
 };
 
+export const updateAuthUser = (newUser) => {
+    localStorage.setItem("user", JSON.stringify(newUser));
+    window.dispatchEvent(new Event("auth-user-updated"));
+};
+
 export default function useAuth() {
     const navigate = useNavigate();
     const [user, setUser] = useState(() => {
@@ -17,6 +22,25 @@ export default function useAuth() {
             return null;
         }
     });
+
+    useEffect(() => {
+        const handleUserChange = () => {
+            try {
+                const stored = localStorage.getItem("user");
+                setUser(stored ? JSON.parse(stored) : null);
+            } catch {
+                setUser(null);
+            }
+        };
+
+        window.addEventListener("auth-user-updated", handleUserChange);
+        window.addEventListener("storage", handleUserChange);
+
+        return () => {
+            window.removeEventListener("auth-user-updated", handleUserChange);
+            window.removeEventListener("storage", handleUserChange);
+        };
+    }, []);
 
     const roleName = user?.role ?? "";
 
@@ -30,6 +54,17 @@ export default function useAuth() {
 
     // Solo el Administrador puede cambiar roles
     const canChangeRoles = isAdmin;
+
+    // Solo Autores y Administradores pueden proponer o crear artículos
+    const canCreateArticle = isAuthor || isAdmin;
+
+    // Solo Miembros del Comité Científico y Administradores pueden deshabilitar artículos
+    const canDisableArticle = isCommittee || isAdmin;
+
+    const updateUser = (updatedUser) => {
+        updateAuthUser(updatedUser);
+        setUser(updatedUser);
+    };
 
     const logout = () => {
         localStorage.removeItem("user");
@@ -47,7 +82,10 @@ export default function useAuth() {
         isAuthor,
         canManageUsers,
         canChangeRoles,
+        canCreateArticle,
+        canDisableArticle,
         isAuthenticated: !!user,
+        updateUser,
         logout,
     };
 }
