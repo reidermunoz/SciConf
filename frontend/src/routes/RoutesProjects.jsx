@@ -9,6 +9,8 @@ import RegisterForm from '../pages/auth/RegisterForm';
 import ForgotPassword from '../pages/auth/ForgotPassword';
 import useAuth from '../hooks/useAuth';
 import Profile from '../pages/users/Profile';
+import Articles from '../pages/articles/Articles';
+import Versions from '../pages/articles/Versions';
 
 // Este componente verifica si hay algun usuario loggeado en localStorage
 
@@ -43,9 +45,10 @@ export default function RoutesProjects() {
                         <Route element={<ManageUsersRoute />}>
                             <Route path="/create-user" element={<CreateUser />} />
                         </Route>
-                        <Route path="/dashboard" element={<ComingSoon title="Dashboard" />} />
-                        <Route path="/articles" element={<ComingSoon title="Artículos" />} />
-                        <Route path="/versions" element={<ComingSoon title="Versiones y revisiones" />} />
+                        {/* Redirección automática de /dashboard hacia Inicio */}
+                        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                        <Route path="/articles" element={<Articles />} />
+                        <Route path="/versions" element={<Versions />} />
                         <Route path="/agenda" element={<ComingSoon title="Agenda" />} />
                     </Route>
                 </Route>

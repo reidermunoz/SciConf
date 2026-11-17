@@ -5,7 +5,7 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions, status
 from .models import User, Role
 from .serializers import UserSerializer, RoleSerializer
-from .permissions import IsAdminOrCommittee, IsAdminUser, get_role_name, ADMIN
+from .permissions import IsAdminOrCommittee, IsAdminUser, CanCreateUser, get_role_name, ADMIN, COMMITTEE
 from django.db import models
 
 import random 
@@ -95,6 +95,8 @@ class LoginView(APIView):
                     'email': user.email,
                     'first_name': user.first_name,
                     'last_name': user.last_name,
+                    'phone': user.phone or "",
+                    'institution': user.institution or "",
                     'role': user.role.name if user.role else None,
                 }
             }, status=status.HTTP_200_OK)
@@ -133,8 +135,8 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == 'create':
-            # Registro: público, cualquiera puede crear cuenta
-            permission_classes = []
+            # Registro público para anónimos, pero si ya está autenticado solo Admin o Comité pueden crear usuarios
+            permission_classes = [CanCreateUser]
         elif self.action in ('list', 'retrieve'):
             # Listar/consultar: solo usuarios autenticados
             permission_classes = [permissions.IsAuthenticated]
@@ -149,7 +151,7 @@ class UserViewSet(viewsets.ModelViewSet):
     def has_object_permission_to_update(self, request, obj):
         """Puede editar si es el propio usuario O es Admin/Comité."""
         role = get_role_name(request.user)
-        return obj == request.user or role in (ADMIN, 'Miembro Comité Científico')
+        return obj == request.user or role in (ADMIN, COMMITTEE, 'Miembro del Comité Científico')
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -161,11 +163,15 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         # Solo el Admin puede cambiar el campo 'role'
-        if 'role' in request.data and get_role_name(request.user) != ADMIN:
-            return Response(
-                {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if 'role' in request.data:
+            new_role = request.data.get('role')
+            current_role_id = instance.role_id if instance.role else None
+            # Si se intenta cambiar el rol y no es Admin
+            if new_role != current_role_id and get_role_name(request.user) != ADMIN:
+                return Response(
+                    {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):

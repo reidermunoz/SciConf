@@ -1,10 +1,9 @@
 import { NavLink } from "react-router-dom";
-import { HomeIcon, ChartIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon, CloseIcon } from "./icons";
+import { HomeIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon, CloseIcon } from "./icons";
 import logoSciConf from "../../assets/SciConfWhiteCut.png";
 
 const menu = [
     { to: "/", label: "Inicio", icon: HomeIcon, end: true },
-    { to: "/dashboard", label: "Dashboard", icon: ChartIcon },
     { to: "/users", label: "Usuarios", icon: UsersIcon },
     { to: "/articles", label: "Artículos", icon: DocumentIcon },
     { to: "/versions", label: "Versiones y revisiones", icon: LayersIcon },

@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { getUsers, getRoles, deleteUser, updateUser } from "../../api/userApi";
 import useAuth from "../../hooks/useAuth";
 
-
-export default function UserList() {
-
+export default function UserList({ refreshTrigger, onLoadingChange }) {
     const { user: currentUser, canManageUsers, canChangeRoles } = useAuth();
-
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -15,24 +12,48 @@ export default function UserList() {
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState("");
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [usersResponse, rolesResponse] = await Promise.all([getUsers(), getRoles()]);
-                setUsers(usersResponse.data);
-                setRoles(rolesResponse.data);
-            } catch {
-                setError(true);
-            } finally {
-                setLoading(false);
+    // Estado del modal de edición
+    const [editingUser, setEditingUser] = useState(null);
+    const [editForm, setEditForm] = useState({
+        first_name: "",
+        last_name: "",
+        email: "",
+        phone: "",
+        institution: "",
+        role: "",
+    });
+
+    const [saving, setSaving] = useState(false);
+
+    const fetchData = useCallback(async (isManual = false) => {
+        setLoading(true);
+        if (onLoadingChange) onLoadingChange(true);
+        setError(false);
+        try {
+            const [usersResponse, rolesResponse] = await Promise.all([getUsers(), getRoles()]);
+            setUsers(usersResponse.data);
+            setRoles(rolesResponse.data);
+            if (isManual) {
+                toast.success("Lista de usuarios actualizada");
             }
-        };
-        fetchData();
-    }, []);
+        } catch {
+            setError(true);
+            if (isManual) {
+                toast.error("Error al actualizar la lista de usuarios");
+            }
+        } finally {
+            setLoading(false);
+            if (onLoadingChange) onLoadingChange(false);
+        }
+    }, [onLoadingChange]);
+
+    useEffect(() => {
+        fetchData(Boolean(refreshTrigger && refreshTrigger > 0));
+    }, [fetchData, refreshTrigger]);
 
     const roleName = (roleId) => roles.find((role) => role.id === roleId)?.name ?? "Sin rol";
 
-    // Filtros: texto (usuario o correo) y rol
+    // Filtros locales en la tabla
     const filteredUsers = users.filter((u) => {
         const text = search.toLowerCase();
         const matchesText =
@@ -44,7 +65,7 @@ export default function UserList() {
         return matchesText && matchesRole;
     });
 
-    // Eliminar usuario, solo admin y comite
+    // Eliminar usuario (solo Admin o Comité)
     const handleDelete = async (targetUser) => {
         if (targetUser.id === currentUser?.id) {
             toast.error("No puedes eliminar tu propia cuenta en uso.");
@@ -60,7 +81,7 @@ export default function UserList() {
         }
     };
 
-    // Cambiar rol de un usuario (exclusivo para el administrador del sistema)
+    // Cambiar rol de un usuario desde el selector de la tabla (solo Admin)
     const handleRoleChange = async (userId, newRoleId) => {
         try {
             await updateUser(userId, { role: newRoleId ? Number(newRoleId) : null });
@@ -73,6 +94,49 @@ export default function UserList() {
         }
     };
 
+    // Abrir modal de edición
+    const handleOpenEdit = (targetUser) => {
+        setEditingUser(targetUser);
+        setEditForm({
+            first_name: targetUser.first_name || "",
+            last_name: targetUser.last_name || "",
+            email: targetUser.email || "",
+            phone: targetUser.phone || "",
+            institution: targetUser.institution || "",
+            role: targetUser.role || "",
+        });
+    };
+
+    // Guardar cambios del modal de edición
+    const handleSaveEdit = async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            const payload = {
+                first_name: editForm.first_name,
+                last_name: editForm.last_name,
+                email: editForm.email,
+                phone: editForm.phone,
+                institution: editForm.institution,
+            };
+            
+            // Solo si es Admin se puede cambiar el rol en el modal
+            if (canChangeRoles && editForm.role !== "") {
+                payload.role = Number(editForm.role);
+            }
+            const response = await updateUser(editingUser.id, payload);
+            setUsers((current) =>
+                current.map((u) => (u.id === editingUser.id ? { ...u, ...response.data } : u))
+            );
+            toast.success("Usuario actualizado correctamente");
+            setEditingUser(null);
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Error al actualizar los datos del usuario");
+        } finally {
+            setSaving(false);
+        }
+    };
+    
     return (
         <div className="rounded-2xl border border-gray-200 bg-white">
             {/* Filtros */}
@@ -138,7 +202,7 @@ export default function UserList() {
                                     </td>
                                     <td className="px-4 py-3 text-gray-600">{u.email}</td>
                                     <td className="px-4 py-3 text-gray-600">{u.phone || "—"}</td>
-                                    {/* Columna Rol: Selector para Admin, texto para los demás */}
+                                    {/* Columna Rol */}
                                     <td className="px-4 py-3">
                                         {canChangeRoles ? (
                                             <select
@@ -159,15 +223,23 @@ export default function UserList() {
                                             </span>
                                         )}
                                     </td>
-                                    {/* Acciones: Solo visibles si canManageUsers es true */}
+                                    {/* Acciones: Editar y Eliminar (Solo Admin o Comité) */}
                                     {canManageUsers && (
                                         <td className="px-4 py-3 text-right">
-                                            <button
-                                                onClick={() => handleDelete(u)}
-                                                className="rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 transition"
-                                            >
-                                                Eliminar
-                                            </button>
+                                            <div className="flex items-center justify-end gap-1">
+                                                <button
+                                                    onClick={() => handleOpenEdit(u)}
+                                                    className="rounded-lg px-2.5 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 transition"
+                                                >
+                                                    Editar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(u)}
+                                                    className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition"
+                                                >
+                                                    Eliminar
+                                                </button>
+                                            </div>
                                         </td>
                                     )}
                                 </tr>
@@ -185,6 +257,117 @@ export default function UserList() {
                 <p className="border-t border-gray-200 px-4 py-3 text-sm text-gray-500">
                     Mostrando {filteredUsers.length} de {users.length} usuarios
                 </p>
+            )}
+            {/* Modal de Edición de Usuario (Admin y Comité) */}
+            {editingUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4">
+                    <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+                        <div className="mb-4 flex items-center justify-between border-b border-gray-100 pb-3">
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">
+                                    Editar Usuario
+                                </h3>
+                                <p className="text-xs text-gray-500">
+                                    @{editingUser.username}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setEditingUser(null)}
+                                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <form onSubmit={handleSaveEdit} className="flex flex-col gap-3.5">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-700">Nombre</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.first_name}
+                                        onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-700">Apellido</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.last_name}
+                                        onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-medium text-gray-700">Correo Electrónico</label>
+                                <input
+                                    type="email"
+                                    value={editForm.email}
+                                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                                    required
+                                    className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-700">Teléfono</label>
+                                    <input
+                                        type="tel"
+                                        value={editForm.phone}
+                                        onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                                        placeholder="+57 300 123 4567"
+                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-700">Institución</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.institution}
+                                        onChange={(e) => setEditForm({ ...editForm, institution: e.target.value })}
+                                        placeholder="Ej. Universidad"
+                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                    />
+                                </div>
+                            </div>
+                            {/* Solo el Administrador puede cambiar el rol en el modal */}
+                            {canChangeRoles && (
+                                <div>
+                                    <label className="mb-1 block text-xs font-medium text-gray-700">Rol en el sistema</label>
+                                    <select
+                                        value={editForm.role}
+                                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                    >
+                                        <option value="">Sin rol</option>
+                                        {roles.map((r) => (
+                                            <option key={r.id} value={r.id}>
+                                                {r.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            <div className="mt-3 flex justify-end gap-2 border-t border-gray-100 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingUser(null)}
+                                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={saving}
+                                    className="rounded-lg bg-brand-500 px-5 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+                                >
+                                    {saving ? "Guardando..." : "Guardar cambios"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             )}
         </div>
     );
