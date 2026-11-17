@@ -66,6 +66,12 @@ class ArticleViewSet(viewsets.ModelViewSet):
         copyright_file = request.FILES.get('copyright_file')
         if not file:
             return Response({'error': 'Debes adjuntar el archivo PDF del artículo.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+        # HU-16: el servidor también exige PDF de máximo 10 MB
+        if not file.name.lower().endswith('.pdf'):
+            return Response({'error': 'El archivo debe ser un PDF.'}, status=status.HTTP_400_BAD_REQUEST)
+        if file.size > 10 * 1024 * 1024:
+            return Response({'error': 'El archivo supera el máximo de 10 MB.'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Validaciones según el tipo de versión y fechas límite
         if version_type == VersionType.INICIAL:
