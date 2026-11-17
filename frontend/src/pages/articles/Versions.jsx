@@ -26,7 +26,7 @@ export default function Versions() {
     const [isReviewOpen, setIsReviewOpen] = useState(false);
 
     // Cargar datos
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (isManual = false) => {
         setLoading(true);
 
         try {
@@ -53,6 +53,10 @@ export default function Versions() {
             if (isCommittee || isAdmin) {
                 const revRes = await getMyReviews();
                 setMyReviews(revRes.data);
+            }
+
+            if (isManual) {
+                toast.success('Versiones y revisiones actualizadas');
             }
         } catch {
             toast.error('Error al cargar la información de versiones y revisiones');
@@ -108,16 +112,42 @@ export default function Versions() {
                     </p>
                 </div>
                 
-                {/* Acción especial de Administrador */}
-                {isAdmin && (
+                <div className="flex flex-wrap items-center gap-3">
                     <button
-                        onClick={handleAssignAll}
-                        disabled={assigningAll}
-                        className="rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-600 transition disabled:opacity-50"
+                        type="button"
+                        onClick={() => fetchData(true)}
+                        disabled={loading}
+                        className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 hover:text-brand-600 transition disabled:opacity-60"
+                        title="Actualizar datos desde la base de datos"
                     >
-                        {assigningAll ? 'Asignando...' : '⚡ Asignar 3 evaluadores a postulados'}
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className={`size-4 ${loading ? 'animate-spin text-brand-600' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                        </svg>
+                        <span>Actualizar</span>
                     </button>
-                )}
+
+                    {/* Acción especial de Administrador */}
+                    {isAdmin && (
+                        <button
+                            onClick={handleAssignAll}
+                            disabled={assigningAll}
+                            className="rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-600 transition disabled:opacity-50"
+                        >
+                            {assigningAll ? 'Asignando...' : '⚡ Asignar 3 evaluadores a postulados'}
+                        </button>
+                    )}
+                </div>
             </div>
             
             {/* Selector de pestañas */}

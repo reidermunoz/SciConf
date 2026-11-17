@@ -28,7 +28,7 @@ export default function Articles() {
     const [selectedArticleToDisable, setSelectedArticleToDisable] = useState(null);
     
     // Cargar artículos aplicando filtros en backend
-    const fetchArticles = useCallback(async () => {
+    const fetchArticles = useCallback(async (isManual = false) => {
         setLoading(true);
         try {
             const params = {};
@@ -37,6 +37,9 @@ export default function Articles() {
             if (search.trim()) params.search = search.trim();
             const res = await getArticles(params);
             setArticles(res.data);
+            if (isManual) {
+                toast.success('Lista de artículos actualizada');
+            }
         } catch (err) {
             toast.error('Error al cargar la lista de artículos.');
         } finally {
@@ -99,14 +102,39 @@ export default function Articles() {
                         Consulta, propuesta y evaluación de ponencias científicas postuladas para la conferencia.
                     </p>
                 </div>
-                {canCreateArticle && (
+                <div className="flex flex-wrap items-center gap-3">
                     <button
-                        onClick={handleOpenCreate}
-                        className="rounded-lg bg-brand-500 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-brand-600 transition shadow-sm"
+                        type="button"
+                        onClick={() => fetchArticles(true)}
+                        disabled={loading}
+                        className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3.5 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 hover:text-brand-600 transition disabled:opacity-60"
+                        title="Actualizar artículos desde la base de datos"
                     >
-                        + Proponer artículo
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className={`size-4 ${loading ? 'animate-spin text-brand-600' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                        </svg>
+                        <span>Actualizar</span>
                     </button>
-                )}
+                    {canCreateArticle && (
+                        <button
+                            onClick={handleOpenCreate}
+                            className="rounded-lg bg-brand-500 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-brand-600 transition shadow-sm"
+                        >
+                            + Proponer artículo
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Barra de Filtros */}

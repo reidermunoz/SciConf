@@ -1,8 +1,7 @@
 import { Link } from "react-router-dom";
-import { ChartIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon } from "../components/layout/icons";
+import { UsersIcon, DocumentIcon, LayersIcon, CalendarIcon } from "../components/layout/icons";
 
 const modules = [
-    { to: "/dashboard", title: "Dashboard", description: "Indicadores y gráficos de la conferencia.", icon: ChartIcon },
     { to: "/users", title: "Usuarios", description: "Administradores, miembros del comité científico y autores.", icon: UsersIcon },
     { to: "/articles", title: "Artículos", description: "Postulación y consulta de artículos por línea temática.", icon: DocumentIcon },
     { to: "/versions", title: "Versiones y revisiones", description: "Evaluación del comité y avales de cada versión.", icon: LayersIcon },
@@ -25,12 +24,6 @@ export default function Home() {
                 <p className="mt-2 max-w-2xl text-white/90">
                     Gestor de conferencia científica: comité, autores, artículos y agenda del evento.
                 </p>
-                <div className="mt-5">
-                    <Link to="/dashboard"
-                        className="inline-block rounded-lg bg-white px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50 transition">
-                        Ver dashboard
-                    </Link>
-                </div>
             </section>
 
             {/* Accesos a los módulos */}

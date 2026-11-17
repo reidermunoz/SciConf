@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { getUsers, getRoles, deleteUser, updateUser } from "../../api/userApi";
 import useAuth from "../../hooks/useAuth";
 
-export default function UserList() {
+export default function UserList({ refreshTrigger, onLoadingChange }) {
     const { user: currentUser, canManageUsers, canChangeRoles } = useAuth();
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
@@ -24,20 +24,32 @@ export default function UserList() {
     });
 
     const [saving, setSaving] = useState(false);
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [usersResponse, rolesResponse] = await Promise.all([getUsers(), getRoles()]);
-                setUsers(usersResponse.data);
-                setRoles(rolesResponse.data);
-            } catch {
-                setError(true);
-            } finally {
-                setLoading(false);
+
+    const fetchData = useCallback(async (isManual = false) => {
+        setLoading(true);
+        if (onLoadingChange) onLoadingChange(true);
+        setError(false);
+        try {
+            const [usersResponse, rolesResponse] = await Promise.all([getUsers(), getRoles()]);
+            setUsers(usersResponse.data);
+            setRoles(rolesResponse.data);
+            if (isManual) {
+                toast.success("Lista de usuarios actualizada");
             }
-        };
-        fetchData();
-    }, []);
+        } catch {
+            setError(true);
+            if (isManual) {
+                toast.error("Error al actualizar la lista de usuarios");
+            }
+        } finally {
+            setLoading(false);
+            if (onLoadingChange) onLoadingChange(false);
+        }
+    }, [onLoadingChange]);
+
+    useEffect(() => {
+        fetchData(Boolean(refreshTrigger && refreshTrigger > 0));
+    }, [fetchData, refreshTrigger]);
 
     const roleName = (roleId) => roles.find((role) => role.id === roleId)?.name ?? "Sin rol";
 

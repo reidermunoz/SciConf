@@ -45,7 +45,8 @@ export default function RoutesProjects() {
                         <Route element={<ManageUsersRoute />}>
                             <Route path="/create-user" element={<CreateUser />} />
                         </Route>
-                        <Route path="/dashboard" element={<ComingSoon title="Dashboard" />} />
+                        {/* Redirección automática de /dashboard hacia Inicio */}
+                        <Route path="/dashboard" element={<Navigate to="/" replace />} />
                         <Route path="/articles" element={<Articles />} />
                         <Route path="/versions" element={<Versions />} />
                         <Route path="/agenda" element={<ComingSoon title="Agenda" />} />
