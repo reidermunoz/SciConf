@@ -5,7 +5,7 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions, status
 from .models import User, Role
 from .serializers import UserSerializer, RoleSerializer
-from .permissions import IsAdminOrCommittee, IsAdminUser, get_role_name, ADMIN
+from .permissions import IsAdminOrCommittee, IsAdminUser, CanCreateUser, get_role_name, ADMIN, COMMITTEE
 from django.db import models
 
 import random 
@@ -135,8 +135,8 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == 'create':
-            # Registro: público, cualquiera puede crear cuenta
-            permission_classes = []
+            # Registro público para anónimos, pero si ya está autenticado solo Admin o Comité pueden crear usuarios
+            permission_classes = [CanCreateUser]
         elif self.action in ('list', 'retrieve'):
             # Listar/consultar: solo usuarios autenticados
             permission_classes = [permissions.IsAuthenticated]
@@ -151,7 +151,7 @@ class UserViewSet(viewsets.ModelViewSet):
     def has_object_permission_to_update(self, request, obj):
         """Puede editar si es el propio usuario O es Admin/Comité."""
         role = get_role_name(request.user)
-        return obj == request.user or role in (ADMIN, 'Miembro Comité Científico')
+        return obj == request.user or role in (ADMIN, COMMITTEE, 'Miembro del Comité Científico')
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()

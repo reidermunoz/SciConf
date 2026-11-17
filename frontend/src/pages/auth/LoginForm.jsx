@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { loginUser, getCaptcha } from "../../api/userApi";
 import PasswordInput from "../../components/common/PasswordInput";
+import logoSciConf from "../../assets/SciConfWhiteCut.png";
 
 export default function LoginForm() {
     const navigate = useNavigate();
@@ -69,20 +70,16 @@ export default function LoginForm() {
     return (
         <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
-                {/* Logo y Encabezado */}
-                <div className="mb-8 text-center">
-                    <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">
-                        Sci<span className="text-brand-500">Conf</span>
-                    </h1>
-                    <p className="mt-2 text-sm text-gray-500">
-                        Plataforma de gestión de conferencias científicas
-                    </p>
-                </div>
                 {/* Tarjeta del Formulario */}
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-                    <h2 className="mb-6 text-xl font-bold text-gray-800">
-                        Iniciar Sesión
-                    </h2>
+                    {/* Logo centrado en lugar del título */}
+                    <div className="mb-6 flex justify-center">
+                        <img
+                            src={logoSciConf}
+                            alt="SciConf Logo"
+                            className="h-16 w-auto rounded-2xl object-contain shadow-xs"
+                        />
+                    </div>
                     {error && (
                         <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm text-red-600">
                             {error}
@@ -183,6 +180,9 @@ export default function LoginForm() {
                                 onChange={handleChange}
                                 required
                                 maxLength={5}
+                                autoCapitalize="characters"
+                                autoCorrect="off"
+                                spellCheck="false"
                                 className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3.5 text-center font-mono text-base font-bold uppercase tracking-widest text-gray-800 placeholder:font-sans placeholder:text-xs placeholder:font-normal placeholder:tracking-normal placeholder-gray-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
                             />
                         </div>

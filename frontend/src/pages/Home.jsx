@@ -23,7 +23,7 @@ export default function Home() {
             <section className="rounded-2xl bg-gradient-to-r from-brand-500 to-brand-600 p-6 text-white md:p-8">
                 <h2 className="text-2xl font-bold md:text-3xl">Bienvenido a SciConf</h2>
                 <p className="mt-2 max-w-2xl text-white/90">
-                    Gestiona la parte científica de la conferencia: comité, autores, artículos y agenda del evento.
+                    Gestor de conferencia científica: comité, autores, artículos y agenda del evento.
                 </p>
                 <div className="mt-5">
                     <Link to="/dashboard"
