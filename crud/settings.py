@@ -177,3 +177,6 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,             # No requiere app adicional
     'AUTH_HEADER_TYPES': ('Bearer',),              # El frontend envía: Authorization: Bearer <token>
 }
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
