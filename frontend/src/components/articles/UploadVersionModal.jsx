@@ -24,6 +24,18 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
             return;
         }
 
+        //HU-16: Solo se acepta PDF de 10 MB
+        if (!file.name.toLowerCase().endsWith('.pdf'))
+        {
+            toast.error('El archivo debe ser un PDF.');
+            return;
+        }
+        
+        if (file.size > 10 * 1024 * 1024) {
+            toast.error('El archivo supera el máximo de 10 MB.');
+            return;
+        }
+
         if (versionType === 'FINAL' && !copyrightFile) {
             toast.error('Para la versión final es obligatorio adjuntar la cesión de copyright en PDF.');
             return;
