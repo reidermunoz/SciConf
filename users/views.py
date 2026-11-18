@@ -84,6 +84,11 @@ class LoginView(APIView):
         # 3. Busca por correo o por username
         user = User.objects.filter(email=identifier).first() or User.objects.filter(username=identifier).first()
         if user and user.check_password(password):
+            if not user.is_active:
+                return Response(
+                    {'error': 'Tu cuenta se encuentra deshabilitada. Contacta al administrador o al comité.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             # Genera los tokens JWT para este usuario
             refresh = RefreshToken.for_user(user)
             return Response({
@@ -98,6 +103,7 @@ class LoginView(APIView):
                     'phone': user.phone or "",
                     'institution': user.institution or "",
                     'role': user.role.name if user.role else None,
+                    'is_active': user.is_active,
                 }
             }, status=status.HTTP_200_OK)
         return Response(
@@ -172,7 +178,23 @@ class UserViewSet(viewsets.ModelViewSet):
                     {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
                     status=status.HTTP_403_FORBIDDEN
                 )
+            
+        # Solo Admin o Comité pueden cambiar el estado 'is_active'
+        if 'is_active' in request.data:
+            role = get_role_name(request.user)
+            if role not in (ADMIN, COMMITTEE, 'Miembro del Comité Científico'):
+                return Response(
+                    {'error': 'Solo el Administrador o el Comité Científico pueden habilitar o deshabilitar usuarios.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if instance == request.user and request.data.get('is_active') is False:
+                return Response(
+                    {'error': 'No puedes deshabilitar tu propia cuenta en uso.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         return super().update(request, *args, **kwargs)
+
+
 
     def partial_update(self, request, *args, **kwargs):
         kwargs['partial'] = True
