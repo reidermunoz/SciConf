@@ -11,6 +11,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
     const [error, setError] = useState(false);
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
 
     // Estado del modal de edición
     const [editingUser, setEditingUser] = useState(null);
@@ -21,6 +22,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         phone: "",
         institution: "",
         role: "",
+        is_active: true,
     });
 
     const [saving, setSaving] = useState(false);
@@ -62,7 +64,11 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
             (u.first_name && u.first_name.toLowerCase().includes(text)) ||
             (u.last_name && u.last_name.toLowerCase().includes(text));
         const matchesRole = roleFilter === "" || String(u.role ?? "none") === roleFilter;
-        return matchesText && matchesRole;
+        const matchesStatus =
+            statusFilter === "all" ||
+            (statusFilter === "active" && u.is_active) ||
+            (statusFilter === "inactive" && !u.is_active);
+        return matchesText && matchesRole && matchesStatus;
     });
 
     // Eliminar usuario (solo Admin o Comité)
@@ -78,6 +84,27 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
             toast.success("Usuario eliminado correctamente");
         } catch (err) {
             toast.error(err.response?.data?.error || "No se pudo eliminar el usuario");
+        }
+    };
+
+    // Habilitar / Deshabilitar usuario (solo Admin o Comité)
+    const handleToggleActive = async (targetUser) => {
+        if (targetUser.id === currentUser?.id) {
+            toast.error("No puedes deshabilitar tu propia cuenta.");
+            return;
+        }
+        const newStatus = !targetUser.is_active;
+        const actionText = newStatus ? "habilitar" : "deshabilitar";
+        if (!window.confirm(`¿Estás seguro de ${actionText} la cuenta de "${targetUser.username}"?`)) return;
+
+        try {
+            await updateUser(targetUser.id, { is_active: newStatus });
+            setUsers((current) =>
+                current.map((u) => (u.id === targetUser.id ? { ...u, is_active: newStatus } : u))
+            );
+            toast.success(`Cuenta ${newStatus ? "habilitada" : "deshabilitada"} exitosamente`);
+        } catch (err) {
+            toast.error(err.response?.data?.error || `Error al ${actionText} la cuenta`);
         }
     };
 
@@ -104,6 +131,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
             phone: targetUser.phone || "",
             institution: targetUser.institution || "",
             role: targetUser.role || "",
+            is_active: targetUser.is_active ?? true,
         });
     };
 
@@ -119,6 +147,11 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                 phone: editForm.phone,
                 institution: editForm.institution,
             };
+
+            // Permitir modificar is_active solo si tiene permiso y no es su propia cuenta
+            if (canManageUsers && editingUser.id !== currentUser?.id) {
+                payload.is_active = editForm.is_active;
+            }
             
             // Solo si es Admin se puede cambiar el rol en el modal
             if (canChangeRoles && editForm.role !== "") {
@@ -151,7 +184,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                 <select
                     value={roleFilter}
                     onChange={(e) => setRoleFilter(e.target.value)}
-                    className="h-10 rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500 md:w-56"
+                    className="h-10 rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500 md:w-52"
                 >
                     <option value="">Todos los roles</option>
                     {roles.map((role) => (
@@ -160,6 +193,15 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                         </option>
                     ))}
                     <option value="none">Sin rol</option>
+                </select>
+                <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="h-10 rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500 md:w-44"
+                >
+                    <option value="all">Todos los estados</option>
+                    <option value="active">Solo Activos</option>
+                    <option value="inactive">Solo Inactivos</option>
                 </select>
             </div>
             {loading && <p className="p-6 text-center text-gray-500">Cargando usuarios...</p>}
@@ -177,6 +219,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                 <th className="px-4 py-3 font-medium">Correo</th>
                                 <th className="px-4 py-3 font-medium">Teléfono</th>
                                 <th className="px-4 py-3 font-medium">Rol</th>
+                                <th className="px-4 py-3 font-medium">Estado</th>
                                 {canManageUsers && (
                                     <th className="px-4 py-3 text-right font-medium">Acciones</th>
                                 )}
@@ -223,7 +266,21 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                             </span>
                                         )}
                                     </td>
-                                    {/* Acciones: Editar y Eliminar (Solo Admin o Comité) */}
+                                    {/* Columna Estado */}
+                                    <td className="px-4 py-3">
+                                        {u.is_active ? (
+                                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 border border-emerald-200">
+                                                <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                                                Activo
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 border border-rose-200">
+                                                <span className="size-1.5 rounded-full bg-rose-500"></span>
+                                                Inactivo
+                                            </span>
+                                        )}
+                                    </td>
+                                    {/* Acciones: Editar, Deshabilitar/Habilitar y Eliminar (Solo Admin o Comité) */}
                                     {canManageUsers && (
                                         <td className="px-4 py-3 text-right">
                                             <div className="flex items-center justify-end gap-1">
@@ -234,8 +291,28 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                                     Editar
                                                 </button>
                                                 <button
+                                                    onClick={() => handleToggleActive(u)}
+                                                    disabled={u.id === currentUser?.id}
+                                                    title={u.id === currentUser?.id ? "No puedes deshabilitar tu propia cuenta" : ""}
+                                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                        u.id === currentUser?.id
+                                                            ? "cursor-not-allowed opacity-40 text-gray-400"
+                                                            : u.is_active
+                                                            ? "text-amber-600 hover:bg-amber-50"
+                                                            : "text-emerald-600 hover:bg-emerald-50"
+                                                    }`}
+                                                >
+                                                    {u.is_active ? "Deshabilitar" : "Habilitar"}
+                                                </button>
+                                                <button
                                                     onClick={() => handleDelete(u)}
-                                                    className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 transition"
+                                                    disabled={u.id === currentUser?.id}
+                                                    title={u.id === currentUser?.id ? "No puedes eliminar tu propia cuenta" : ""}
+                                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                        u.id === currentUser?.id
+                                                            ? "cursor-not-allowed opacity-40 text-gray-400"
+                                                            : "text-red-600 hover:bg-red-50"
+                                                    }`}
                                                 >
                                                     Eliminar
                                                 </button>
@@ -347,6 +424,21 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                             </option>
                                         ))}
                                     </select>
+                                </div>
+                            )}
+                            {/* Estado activo / inactivo en el modal si no es la propia cuenta */}
+                            {canManageUsers && editingUser.id !== currentUser?.id && (
+                                <div className="flex items-center gap-2.5 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                    <input
+                                        id="edit-is-active"
+                                        type="checkbox"
+                                        checked={editForm.is_active}
+                                        onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                                        className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                    />
+                                    <label htmlFor="edit-is-active" className="cursor-pointer text-xs font-medium text-gray-700">
+                                        Cuenta activa (permite al usuario iniciar sesión en el sistema)
+                                    </label>
                                 </div>
                             )}
                             <div className="mt-3 flex justify-end gap-2 border-t border-gray-100 pt-3">
