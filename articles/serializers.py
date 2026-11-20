@@ -18,10 +18,12 @@ class ArticleVersionSerializer(serializers.ModelSerializer):
 class ArticleReviewSerializer(serializers.ModelSerializer):
     evaluator_name = serializers.SerializerMethodField()
     article_title = serializers.CharField(source='article.title', read_only=True)
+    article_versions = ArticleVersionSerializer(source='article.versions', many=True, read_only=True)
+
     class Meta:
         model = ArticleReview
         fields = [
-            'id', 'article', 'article_title', 'evaluator', 'evaluator_name',
+            'id', 'article', 'article_title', 'article_versions', 'evaluator', 'evaluator_name',
             'comments', 'is_approved', 'reviewed_at',
             'presentation_endorsement', 'presentation_endorsed_at',
             'publication_endorsement', 'publication_endorsed_at'
@@ -33,20 +35,22 @@ class ArticleReviewSerializer(serializers.ModelSerializer):
 
     def get_evaluator_name(self, obj):
         return obj.evaluator.get_full_name() or obj.evaluator.username
-    
+
+
 class ArticleSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
+    author_email = serializers.EmailField(source='author.email', read_only=True)
     versions = ArticleVersionSerializer(many=True, read_only=True)
     reviews = ArticleReviewSerializer(many=True, read_only=True)
 
     class Meta:
         model = Article
         fields = [
-            'id', 'title', 'abstract', 'thematic_line', 'author', 'author_name',
+            'id', 'title', 'abstract', 'thematic_line', 'author', 'author_name', 'author_email',
             'status', 'is_active', 'deactivation_reason', 'created_at', 'updated_at',
             'versions', 'reviews'
         ]
-        read_only_fields = ['author', 'author_name', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['author', 'author_name', 'author_email', 'status', 'created_at', 'updated_at']
         
     def get_author_name(self, obj):
         return obj.author.get_full_name() or obj.author.username

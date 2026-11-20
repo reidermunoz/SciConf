@@ -16,6 +16,7 @@ export default function Articles() {
 
     // Estados de filtros (al menos 2 filtros: línea temática y estado de habilitación + búsqueda)
     const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [thematicFilter, setThematicFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
 
@@ -27,6 +28,18 @@ export default function Articles() {
     const [isDisableOpen, setIsDisableOpen] = useState(false);
     const [selectedArticleToDisable, setSelectedArticleToDisable] = useState(null);
     
+    // Debounce solo al escribir en búsqueda; la carga inicial y los selectores son inmediatos
+    useEffect(() => {
+        if (!search) {
+            setDebouncedSearch('');
+            return;
+        }
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search);
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [search]);
+
     // Cargar artículos aplicando filtros en backend
     const fetchArticles = useCallback(async (isManual = false) => {
         setLoading(true);
@@ -34,25 +47,21 @@ export default function Articles() {
             const params = {};
             if (thematicFilter) params.thematic_line = thematicFilter;
             if (statusFilter !== '') params.is_active = statusFilter;
-            if (search.trim()) params.search = search.trim();
+            if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
             const res = await getArticles(params);
             setArticles(res.data);
             if (isManual) {
                 toast.success('Lista de artículos actualizada');
             }
-        } catch (err) {
+        } catch {
             toast.error('Error al cargar la lista de artículos.');
         } finally {
             setLoading(false);
         }
-    }, [thematicFilter, statusFilter, search]);
-    useEffect(() => {
+    }, [thematicFilter, statusFilter, debouncedSearch]);
 
-        // Debounce simple para la búsqueda
-        const timer = setTimeout(() => {
-            fetchArticles();
-        }, 300);
-        return () => clearTimeout(timer);
+    useEffect(() => {
+        fetchArticles();
     }, [fetchArticles]);
 
     // Limpiar todos los filtros

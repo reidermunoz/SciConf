@@ -8,6 +8,7 @@ export default function ReviewModal({ isOpen, onClose, review, onSuccess }) {
 
     if (!isOpen || !review) return null;
     const article = review.article_detail || review.article;
+    const articleVersions = review.article_versions || article?.versions || [];
 
     // Enviar evaluación inicial (Aprobado / Rechazado)
     const handleSubmitDecision = async (isApproved) => {
@@ -88,11 +89,11 @@ export default function ReviewModal({ isOpen, onClose, review, onSuccess }) {
                 <div className="flex flex-col gap-5 text-sm">
                     
                     {/* Resumen de versiones enviadas para descargar */}
-                    {article?.versions && article.versions.length > 0 && (
+                    {articleVersions.length > 0 && (
                         <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                             <h4 className="font-semibold text-gray-800 mb-2">Documentos entregados por el autor:</h4>
                             <div className="flex flex-col gap-2">
-                                {article.versions.map((ver) => (
+                                {articleVersions.map((ver) => (
                                     <div key={ver.id} className="flex items-center justify-between rounded-lg bg-white p-2.5 border border-gray-200">
                                         <div>
                                             <p className="font-medium text-gray-800">{ver.version_type}</p>

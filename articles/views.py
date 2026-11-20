@@ -35,7 +35,13 @@ class ArticleViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
     
     def get_queryset(self):
-        queryset = Article.objects.select_related('author').prefetch_related('versions', 'reviews').all()
+        # 'reviews__evaluator' evita una consulta por cada revisión (evaluator_name)
+        queryset = (
+            Article.objects
+            .select_related('author')
+            .prefetch_related('versions', 'reviews__evaluator')
+            .all()
+        )
         thematic_line = self.request.query_params.get('thematic_line')
         if thematic_line:
             queryset = queryset.filter(thematic_line=thematic_line)
@@ -146,13 +152,18 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         role = get_role_name(user)
+        base_qs = (
+            ArticleReview.objects
+            .select_related('article', 'evaluator')
+            .prefetch_related('article__versions')
+        )
 
         # El Administrador ve todas las evaluaciones
         if role == ROLE_ADMIN:
-            return ArticleReview.objects.select_related('article', 'evaluator').all()
+            return base_qs.all()
         
         # El evaluador solo ve las que tiene asignadas
-        return ArticleReview.objects.select_related('article', 'evaluator').filter(evaluator=user)
+        return base_qs.filter(evaluator=user)
     
     # Evaluación inicial (Aprobado / Rechazado con comentarios)
     @action(detail=True, methods=['post', 'patch'], url_path='submit-evaluation')
