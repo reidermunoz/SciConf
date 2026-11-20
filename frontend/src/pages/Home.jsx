@@ -1,12 +1,6 @@
 import { Link } from "react-router-dom";
 import { UsersIcon, DocumentIcon, LayersIcon, CalendarIcon } from "../components/layout/icons";
-
-const modules = [
-    { to: "/users", title: "Usuarios", description: "Administradores, miembros del comité científico y autores.", icon: UsersIcon },
-    { to: "/articles", title: "Artículos", description: "Postulación y consulta de artículos por línea temática.", icon: DocumentIcon },
-    { to: "/versions", title: "Versiones y revisiones", description: "Evaluación del comité y avales de cada versión.", icon: LayersIcon },
-    { to: "/agenda", title: "Agenda", description: "Horarios de presentación de lunes a viernes.", icon: CalendarIcon },
-];
+import useAuth from "../hooks/useAuth";
 
 const stages = [
     { title: "Postulación", description: "Los autores envían su artículo en PDF." },
@@ -16,6 +10,15 @@ const stages = [
 ];
 
 export default function Home() {
+    const { canManageUsers } = useAuth();
+    const modules = [
+        canManageUsers
+            ? { to: "/users", title: "Usuarios", description: "Administradores, miembros del comité científico y autores.", icon: UsersIcon }
+            : { to: "/profile", title: "Mi Perfil", description: "Consulta y actualiza tus datos personales y credenciales.", icon: UsersIcon },
+        { to: "/articles", title: "Artículos", description: "Postulación y consulta de artículos por línea temática.", icon: DocumentIcon },
+        { to: "/versions", title: "Versiones y revisiones", description: "Evaluación del comité y avales de cada versión.", icon: LayersIcon },
+        { to: "/agenda", title: "Agenda", description: "Horarios de presentación de lunes a viernes.", icon: CalendarIcon },
+    ];
     return (
         <div className="flex flex-col gap-6">
             {/* Bienvenida */}

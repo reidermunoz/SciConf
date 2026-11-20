@@ -42,18 +42,27 @@ export default function useAuth() {
         };
     }, []);
 
-    const roleName = user?.role ?? "";
+    const userRoles = Array.isArray(user?.roles)
+        ? user.roles
+        : user?.role
+        ? [user.role]
+        : [];
+    const activeRole = user?.active_role || (userRoles.length === 1 ? userRoles[0] : "");
+    const roleName = activeRole || userRoles.join(", ");
+    const hasMultipleRoles = userRoles.length > 1;
 
-    // Pedimos permiso segun el PDF de requerimientos.
-    const isAdmin = roleName === ROLES.ADMIN;
-    const isCommittee = roleName === ROLES.COMMITTEE;
-    const isAuthor = roleName === ROLES.AUTHOR;
+    // Permisos basados en el rol activo seleccionado al iniciar sesión
+    const isAdmin = activeRole === ROLES.ADMIN;
+    const isCommittee =
+        activeRole === ROLES.COMMITTEE ||
+        activeRole === "Miembro del Comité Científico";
+    const isAuthor = activeRole === ROLES.AUTHOR;
 
     // Solo Admin y Comité pueden crear/eliminar usuarios
     const canManageUsers = isAdmin || isCommittee;
 
-    // Solo el Administrador puede cambiar roles
-    const canChangeRoles = isAdmin;
+    // Administrador y Comité pueden cambiar roles (con jerarquía en backend/UI)
+    const canChangeRoles = isAdmin || isCommittee;
 
     // Solo Autores y Administradores pueden proponer o crear artículos
     const canCreateArticle = isAuthor || isAdmin;
@@ -76,6 +85,9 @@ export default function useAuth() {
 
     return {
         user,
+        userRoles,
+        activeRole,
+        hasMultipleRoles,
         roleName,
         isAdmin,
         isCommittee,

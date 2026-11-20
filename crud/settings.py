@@ -95,6 +95,10 @@ DATABASES = {
         "PASSWORD": os.environ.get('DB_PASSWORD', ''),
         "HOST": os.environ.get('DB_HOST', ''),
         "PORT": os.getenv('DB_PORT', '5432'),
+        # Reutiliza la conexión con la base remota (Supabase) en lugar de abrir una
+        # nueva, con su handshake SSL, en cada petición.
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -163,7 +167,7 @@ CORS_ALLOWED_ORIGINS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'users.authentication.RoleAwareJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',  # Por defecto libre; cada view define sus permisos

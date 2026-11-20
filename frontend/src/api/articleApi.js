@@ -21,12 +21,18 @@ export const getArticle = async (id) => {
 
 // Crear nuevo artículo (solo autores / admin)
 export const createArticle = async (data) => {
-    return await api.post('/articles/', data);
+    const config = data instanceof FormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : {};
+    return await api.post('/articles/', data, config);
 };
 
 // Modificar datos del artículo (solo autor propietario / admin)
 export const updateArticle = async (id, data) => {
-    return await api.patch(`/articles/${id}/`, data);
+    const config = data instanceof FormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : {};
+    return await api.patch(`/articles/${id}/`, data, config);
 };
 
 // Deshabilitar / Reactivar artículo para la conferencia (solo comité científico / admin)
@@ -46,8 +52,13 @@ export const uploadArticleVersion = async (articleId, formData) => {
 };
 
 // --- Asignación de evaluadores (Comité / Admin) ---
-export const assignEvaluators = async (articleId) => {
-    return await api.post(`/articles/${articleId}/assign-evaluators/`);
+export const getSuggestedEvaluators = async (articleId) => {
+    return await api.get(`/articles/${articleId}/suggest-evaluators/`);
+};
+
+export const assignEvaluators = async (articleId, evaluatorIds = null) => {
+    const payload = Array.isArray(evaluatorIds) ? { evaluator_ids: evaluatorIds } : {};
+    return await api.post(`/articles/${articleId}/assign-evaluators/`, payload);
 };
 
 export const assignAllEvaluators = async () => {
@@ -59,15 +70,21 @@ export const getMyReviews = async () => {
     return await api.get('/reviews/');
 };
 
-export const submitReviewEvaluation = async (reviewId, { comments, is_approved }) => {
+export const submitReviewEvaluation = async (
+    reviewId,
+    { comments, is_approved, originality_score, relevance_score, technical_quality_score }
+) => {
     return await api.post(`/reviews/${reviewId}/submit-evaluation/`, {
         comments,
         is_approved,
+        originality_score,
+        relevance_score,
+        technical_quality_score,
     });
 };
 
-export const endorsePresentation = async (reviewId) => {
-    return await api.post(`/reviews/${reviewId}/endorse-presentation/`);
+export const endorsePresentation = async (reviewId, approved = true) => {
+    return await api.post(`/reviews/${reviewId}/endorse-presentation/`, { approved });
 };
 
 export const endorsePublication = async (reviewId) => {

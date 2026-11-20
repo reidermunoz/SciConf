@@ -1,16 +1,19 @@
 import { NavLink } from "react-router-dom";
 import { HomeIcon, UsersIcon, DocumentIcon, LayersIcon, CalendarIcon, CloseIcon } from "./icons";
 import logoSciConf from "../../assets/SciConfWhiteCut.png";
-
-const menu = [
-    { to: "/", label: "Inicio", icon: HomeIcon, end: true },
-    { to: "/users", label: "Usuarios", icon: UsersIcon },
-    { to: "/articles", label: "Artículos", icon: DocumentIcon },
-    { to: "/versions", label: "Versiones y revisiones", icon: LayersIcon },
-    { to: "/agenda", label: "Agenda", icon: CalendarIcon },
-];
+import useAuth from "../../hooks/useAuth";
 
 export default function Sidebar({ open, onClose }) {
+    const { canManageUsers } = useAuth();
+    const menu = [
+        { to: "/", label: "Inicio", icon: HomeIcon, end: true },
+        canManageUsers
+            ? { to: "/users", label: "Usuarios", icon: UsersIcon }
+            : { to: "/profile", label: "Mi Perfil", icon: UsersIcon },
+        { to: "/articles", label: "Artículos", icon: DocumentIcon },
+        { to: "/versions", label: "Versiones y revisiones", icon: LayersIcon },
+        { to: "/agenda", label: "Agenda", icon: CalendarIcon },
+    ];
     return (
         <>
             {/* Fondo oscuro detrás del menú en celular */}

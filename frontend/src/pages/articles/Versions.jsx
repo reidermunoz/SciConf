@@ -25,35 +25,39 @@ export default function Versions() {
     const [selectedReview, setSelectedReview] = useState(null);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
 
-    // Cargar datos
+    // Cargar datos en paralelo para reducir el tiempo total de espera
     const fetchData = useCallback(async (isManual = false) => {
         setLoading(true);
 
         try {
-            // Cargar fechas límite
-            try {
-                const deadRes = await getDeadlines();
-                setDeadlines(deadRes.data);
-            } catch {
-                // Silencioso si aún no se configuran
-            }
+            const tasks = [
+                getDeadlines()
+                    .then((deadRes) => setDeadlines(deadRes.data))
+                    .catch(() => {
+                        // Silencioso si aún no se configuran
+                    }),
+            ];
 
-            // Cargar artículos (si es autor o admin)
             if (isAuthor || isAdmin) {
-                const artRes = await getArticles();
-
-                // Si es autor común, filtrar solo sus artículos
-                const filtered = isAdmin
-                    ? artRes.data
-                    : artRes.data.filter((a) => a.author === currentUser?.id);
-                setMyArticles(filtered);
+                tasks.push(
+                    getArticles().then((artRes) => {
+                        const filtered = isAdmin
+                            ? artRes.data
+                            : artRes.data.filter((a) => a.author === currentUser?.id);
+                        setMyArticles(filtered);
+                    })
+                );
             }
 
-            // Cargar revisiones (si es comité o admin)
             if (isCommittee || isAdmin) {
-                const revRes = await getMyReviews();
-                setMyReviews(revRes.data);
+                tasks.push(
+                    getMyReviews().then((revRes) => {
+                        setMyReviews(revRes.data);
+                    })
+                );
             }
+
+            await Promise.all(tasks);
 
             if (isManual) {
                 toast.success('Versiones y revisiones actualizadas');
@@ -63,7 +67,7 @@ export default function Versions() {
         } finally {
             setLoading(false);
         }
-    }, [currentUser, isAdmin, isCommittee, isAuthor]);
+    }, [currentUser?.id, isAdmin, isCommittee, isAuthor]);
     useEffect(() => {
         fetchData();
     }, [fetchData]);
@@ -369,6 +373,7 @@ export default function Versions() {
                     setSelectedReview(null);
                 }}
                 review={selectedReview}
+                deadlines={deadlines}
                 onSuccess={fetchData}
             />
         </div>

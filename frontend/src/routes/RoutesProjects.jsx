@@ -15,14 +15,15 @@ import Versions from '../pages/articles/Versions';
 // Este componente verifica si hay algun usuario loggeado en localStorage
 
 function ProtectedRoute() {
-    const { isAuthenticated } = useAuth();
-    return  isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />
+    const { isAuthenticated, hasMultipleRoles, activeRole } = useAuth();
+    const hasValidRoleSelection = !hasMultipleRoles || Boolean(activeRole);
+    return isAuthenticated && hasValidRoleSelection ? <Outlet /> : <Navigate to="/login" replace />
 }
 
-// Verifica si tiene permisos para gestionar usuarios
+// Verifica si tiene permisos para gestionar/consultar usuarios
 function ManageUsersRoute() {
     const { canManageUsers } = useAuth();
-    return canManageUsers ? <Outlet /> : <Navigate to="/users" replace />
+    return canManageUsers ? <Outlet /> : <Navigate to="/profile" replace />
 }
 export default function RoutesProjects() {
     return (
@@ -38,11 +39,11 @@ export default function RoutesProjects() {
                 <Route element={<ProtectedRoute />}>
                     <Route element={<AppLayout />}>
                         <Route path="/" element={<Home />} />
-                        <Route path="/users" element={<Users />} />
                         <Route path="/profile" element={<Profile />} />
                         
-                        {/* Solo Admin y Comité pueden acceder a crear usuarios */}
+                        {/* Solo Admin y Comité pueden consultar el directorio y crear usuarios */}
                         <Route element={<ManageUsersRoute />}>
+                            <Route path="/users" element={<Users />} />
                             <Route path="/create-user" element={<CreateUser />} />
                         </Route>
                         {/* Redirección automática de /dashboard hacia Inicio */}

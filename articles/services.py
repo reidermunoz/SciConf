@@ -2,6 +2,7 @@ import random
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Count, Q
 from .models import Article, ArticleStatus, ArticleReview, ConferenceDeadline
 
 User = get_user_model()
@@ -33,26 +34,57 @@ def can_submit_final_version():
         return True
     return timezone.now() <= deadline.final_deadline
 
-def assign_evaluators_to_article(article):
+def assign_evaluators_to_article(article, evaluator_ids=None):
     """
-    Asigna exactamente 3 miembros del comité científico al artículo de forma aleatoria,
-    excluyendo al autor del artículo.
+    Asigna jurados (miembros del comité científico) a un artículo:
+    - Si `evaluator_ids` es None: selecciona 3 evaluadores al azar.
+    - Si `evaluator_ids` se envía: valida y asigna entre 1 y 3 jurados seleccionados manualmente
+      (incluyendo autoasignación del miembro del comité, salvo si es el autor del artículo).
     """
-    if article.reviews.count() >= 3:
-        return False, "El artículo ya tiene 3 evaluadores asignados."
-    # Obtener miembros del comité científico activos excluyendo al autor
-    committee_members = list(
-        User.objects.filter(
-            role__name__in=COMMITTEE_ROLE_NAMES,
-            is_active=True
-        ).exclude(id=article.author_id)
-    )
-    if len(committee_members) < 3:
-        return False, f"Se requieren al menos 3 miembros del comité científico registrados (hay {len(committee_members)} disponibles)."
-    # Seleccionar 3 jurados al azar
-    selected_evaluators = random.sample(committee_members, 3)
+    if evaluator_ids is None:
+        if article.reviews.count() >= 3:
+            return False, "El artículo ya tiene 3 evaluadores asignados."
+        # Obtener miembros del comité científico activos excluyendo al autor
+        committee_members = list(
+            User.objects.filter(
+                roles__name__in=COMMITTEE_ROLE_NAMES,
+                is_active=True
+            ).exclude(id=article.author_id).distinct()
+        )
+        if len(committee_members) < 3:
+            return False, f"Se requieren al menos 3 miembros del comité científico registrados (hay {len(committee_members)} disponibles)."
+        selected_evaluators = random.sample(committee_members, 3)
+    else:
+        if article.reviews.filter(is_approved__isnull=False).exists():
+            return False, "No se pueden reasignar jurados porque el artículo ya tiene evaluaciones registradas."
+        try:
+            unique_ids = list(dict.fromkeys(int(eid) for eid in evaluator_ids))
+        except (TypeError, ValueError):
+            return False, "Los identificadores de evaluadores no son válidos."
+        if len(unique_ids) > 3:
+            return False, "Puedes seleccionar máximo 3 jurados del comité científico."
+        if article.author_id in unique_ids:
+            return False, "El autor del artículo no puede ser asignado como su propio evaluador."
+
+        if len(unique_ids) == 0:
+            with transaction.atomic():
+                article.reviews.all().delete()
+                if article.status == ArticleStatus.EN_REVISION:
+                    article.status = ArticleStatus.POSTULADO
+                    article.save(update_fields=['status'])
+            return True, f"Se eliminaron los evaluadores asignados al artículo '{article.title}'."
+
+        selected_evaluators = list(
+            User.objects.filter(
+                id__in=unique_ids,
+                roles__name__in=COMMITTEE_ROLE_NAMES,
+                is_active=True,
+            ).distinct()
+        )
+        if len(selected_evaluators) != len(unique_ids):
+            return False, "Todos los jurados seleccionados deben ser miembros activos del comité científico."
+
     with transaction.atomic():
-        # Limpiar asignaciones previas si existieran incompletas
         article.reviews.all().delete()
         for member in selected_evaluators:
             ArticleReview.objects.create(
@@ -61,7 +93,56 @@ def assign_evaluators_to_article(article):
             )
         article.status = ArticleStatus.EN_REVISION
         article.save(update_fields=['status'])
-    return True, f"Se asignaron 3 evaluadores exitosamente al artículo '{article.title}'."
+    return True, f"Se asignaron {len(selected_evaluators)} evaluador(es) exitosamente al artículo '{article.title}'."
+
+
+def suggest_evaluators_for_article(article, current_user=None):
+    """
+    Retorna los miembros activos del comité científico elegibles para evaluar el artículo,
+    ordenados por afinidad con la línea temática del artículo y carga actual de revisiones,
+    junto con una sugerencia automática de hasta 3 jurados.
+    """
+    candidates_qs = (
+        User.objects.filter(
+            roles__name__in=COMMITTEE_ROLE_NAMES,
+            is_active=True,
+        )
+        .exclude(id=article.author_id)
+        .annotate(
+            thematic_reviews_count=Count(
+                'article_reviews',
+                filter=Q(article_reviews__article__thematic_line=article.thematic_line),
+                distinct=True,
+            ),
+            total_assigned_count=Count('article_reviews', distinct=True),
+        )
+        .distinct()
+    )
+
+    candidates = []
+    for member in candidates_qs:
+        candidates.append({
+            'id': member.id,
+            'username': member.username,
+            'full_name': member.get_full_name() or member.username,
+            'email': member.email,
+            'thematic_reviews_count': member.thematic_reviews_count,
+            'total_assigned_count': member.total_assigned_count,
+            'is_current_user': bool(current_user and member.id == current_user.id),
+        })
+
+    # Priorizar afinidad temática (desc) y luego menor carga de trabajo (asc)
+    candidates.sort(key=lambda c: (-c['thematic_reviews_count'], c['total_assigned_count'], c['full_name'].lower()))
+
+    suggested_ids = [c['id'] for c in candidates[:3]]
+    assigned_ids = list(article.reviews.values_list('evaluator_id', flat=True))
+
+    return {
+        'thematic_line': article.thematic_line,
+        'suggested_ids': suggested_ids,
+        'assigned_ids': assigned_ids,
+        'candidates': candidates,
+    }
 
 def assign_evaluators_to_all_submitted():
     """
