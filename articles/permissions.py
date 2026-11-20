@@ -1,13 +1,9 @@
 from rest_framework import permissions
+from users.permissions import has_role
 
 ROLE_ADMIN = 'Administrador del Sistema'
 ROLE_COMMITTEE = 'Miembro Comité Científico'
 ROLE_AUTHOR = 'Autor'
-
-
-def get_role_name(user):
-    """Retorna el nombre del rol del usuario o cadena vacía."""
-    return getattr(getattr(user, 'role', None), 'name', '')
 
 
 class IsArticleAuthorOrReadOnly(permissions.BasePermission):
@@ -27,7 +23,7 @@ class IsArticleAuthorOrReadOnly(permissions.BasePermission):
         
         # Para crear artículo, debe ser Autor o Administrador
         if request.method == 'POST':
-            return get_role_name(request.user) in [ROLE_AUTHOR, ROLE_ADMIN]
+            return has_role(request.user, ROLE_AUTHOR, ROLE_ADMIN)
         
         # Para otros métodos (PUT, PATCH, DELETE), se delega a has_object_permission
         return True
@@ -36,10 +32,9 @@ class IsArticleAuthorOrReadOnly(permissions.BasePermission):
         # Lectura permitida a todos
         if request.method in permissions.SAFE_METHODS:
             return True
-        role = get_role_name(request.user)
 
         # El Administrador tiene acceso total
-        if role == ROLE_ADMIN:
+        if has_role(request.user, ROLE_ADMIN):
             return True
         
         # El autor solo puede modificar su propio artículo
@@ -54,4 +49,4 @@ class IsCommitteeMemberOrAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return get_role_name(request.user) in [ROLE_COMMITTEE, ROLE_ADMIN]
+        return has_role(request.user, ROLE_COMMITTEE, 'Miembro del Comité Científico', ROLE_ADMIN)

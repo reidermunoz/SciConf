@@ -373,6 +373,7 @@ export default function Versions() {
                     setSelectedReview(null);
                 }}
                 review={selectedReview}
+                deadlines={deadlines}
                 onSuccess={fetchData}
             />
         </div>

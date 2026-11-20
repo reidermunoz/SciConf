@@ -2,6 +2,14 @@ import { z } from "zod";
 
 // Validación del formulario de usuario (lado del cliente)
 export const userSchema = z.object({
+    first_name: z.string()
+        .trim()
+        .min(1, "El nombre es obligatorio")
+        .max(150, "Máximo 150 caracteres"),
+    last_name: z.string()
+        .trim()
+        .min(1, "El apellido es obligatorio")
+        .max(150, "Máximo 150 caracteres"),
     username: z.string()
         .min(3, "Mínimo 3 caracteres")
         .max(150, "Máximo 150 caracteres")
@@ -11,5 +19,5 @@ export const userSchema = z.object({
     phone: z.string()
         .regex(/^\+?[0-9 ]{7,15}$/, "Teléfono no válido (ej: +57 3001234567)")
         .or(z.literal("")),
-    role: z.string(),
+    roles: z.array(z.coerce.number()).default([]),
 });

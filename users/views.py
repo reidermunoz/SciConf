@@ -5,7 +5,7 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions, status
 from .models import User, Role
 from .serializers import UserSerializer, RoleSerializer
-from .permissions import IsAdminOrCommittee, IsAdminUser, CanCreateUser, get_role_name, ADMIN, COMMITTEE
+from .permissions import IsAdminOrCommittee, IsAdminUser, CanCreateUser, has_role, ADMIN, COMMITTEE, COMMITTEE_ROLES
 from django.db import models
 
 import random 
@@ -102,7 +102,7 @@ class LoginView(APIView):
                     'last_name': user.last_name,
                     'phone': user.phone or "",
                     'institution': user.institution or "",
-                    'role': user.role.name if user.role else None,
+                    'roles': list(user.roles.values_list('name', flat=True)),
                     'is_active': user.is_active,
                 }
             }, status=status.HTTP_200_OK)
@@ -121,13 +121,17 @@ class UserViewSet(viewsets.ModelViewSet):
         - ?role=Autor               → filtra por nombre de rol
         - ?search=juan              → busca en nombre, apellido o email
         - ?role=Autor&search=juan   → ambos filtros combinados
+        Los Autores solo pueden consultar sus propios datos.
         """
-        queryset = User.objects.select_related('role').all()
+        queryset = User.objects.prefetch_related('roles').all()
+
+        if self.action == 'list' and not has_role(self.request.user, ADMIN, *COMMITTEE_ROLES):
+            queryset = queryset.filter(id=self.request.user.id)
 
         role = self.request.query_params.get('role')
         search = self.request.query_params.get('search')
         if role:
-            queryset = queryset.filter(role__name__icontains=role)
+            queryset = queryset.filter(roles__name__icontains=role).distinct()
 
         if search:
             queryset = queryset.filter(
@@ -156,8 +160,16 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def has_object_permission_to_update(self, request, obj):
         """Puede editar si es el propio usuario O es Admin/Comité."""
-        role = get_role_name(request.user)
-        return obj == request.user or role in (ADMIN, COMMITTEE, 'Miembro del Comité Científico')
+        return obj == request.user or has_role(request.user, ADMIN, *COMMITTEE_ROLES)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance != request.user and not has_role(request.user, ADMIN, *COMMITTEE_ROLES):
+            return Response(
+                {'error': 'No tienes permiso para consultar los datos de otro usuario.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return Response(self.get_serializer(instance).data)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -168,21 +180,40 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'error': 'No tienes permiso para editar este usuario.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        # Solo el Admin puede cambiar el campo 'role'
-        if 'role' in request.data:
-            new_role = request.data.get('role')
-            current_role_id = instance.role_id if instance.role else None
-            # Si se intenta cambiar el rol y no es Admin
-            if new_role != current_role_id and get_role_name(request.user) != ADMIN:
-                return Response(
-                    {'error': 'Solo el Administrador del Sistema puede cambiar roles.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+
+        # Jerarquía: el Comité Científico no puede modificar los datos de un Administrador
+        is_requester_admin = has_role(request.user, ADMIN)
+        if instance != request.user and not is_requester_admin and has_role(instance, ADMIN):
+            return Response(
+                {'error': 'El Comité Científico no puede modificar los datos de un Administrador del Sistema.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Solo Admin o Comité pueden cambiar roles (Comité solo Autor o Comité)
+        if 'roles' in request.data:
+            raw_roles = request.data.get('roles') or []
+            try:
+                new_roles = sorted(int(r) for r in raw_roles)
+            except (TypeError, ValueError):
+                new_roles = raw_roles
+            current_role_ids = sorted(instance.roles.values_list('id', flat=True))
+            if new_roles != current_role_ids:
+                if not has_role(request.user, ADMIN, *COMMITTEE_ROLES):
+                    return Response(
+                        {'error': 'No tienes permiso para cambiar roles.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                if not is_requester_admin:
+                    admin_role_ids = set(Role.objects.filter(name=ADMIN).values_list('id', flat=True))
+                    if isinstance(new_roles, list) and set(new_roles).intersection(admin_role_ids):
+                        return Response(
+                            {'error': 'El Comité Científico solo puede asignar roles de Autor o Miembro Comité Científico.'},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
             
         # Solo Admin o Comité pueden cambiar el estado 'is_active'
         if 'is_active' in request.data:
-            role = get_role_name(request.user)
-            if role not in (ADMIN, COMMITTEE, 'Miembro del Comité Científico'):
+            if not has_role(request.user, ADMIN, *COMMITTEE_ROLES):
                 return Response(
                     {'error': 'Solo el Administrador o el Comité Científico pueden habilitar o deshabilitar usuarios.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -193,6 +224,15 @@ class UserViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not has_role(request.user, ADMIN) and has_role(instance, ADMIN):
+            return Response(
+                {'error': 'El Comité Científico no puede eliminar a un Administrador del Sistema.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 

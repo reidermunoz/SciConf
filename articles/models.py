@@ -26,6 +26,7 @@ class VersionType(models.TextChoices):
 class Article(models.Model):
         title=models.CharField(max_length=255, verbose_name='Título')
         abstract = models.TextField(verbose_name='Resumen')
+        keywords = models.CharField(max_length=255, blank=True, default='', verbose_name='Palabras clave')
         thematic_line = models.CharField(
                 max_length=50, 
                 choices=ThematicLine.choices, 
@@ -63,6 +64,26 @@ class Article(models.Model):
 
         def __str__(self):
             return f"{self.title} - {self.author.get_full_name() or self.author.username}"
+
+
+class ArticleCoAuthor(models.Model):
+    article = models.ForeignKey(
+        Article,
+        on_delete=models.CASCADE,
+        related_name='coauthors',
+        verbose_name='Artículo'
+    )
+    first_name = models.CharField(max_length=150, verbose_name='Nombre')
+    last_name = models.CharField(max_length=150, verbose_name='Apellido')
+    email = models.EmailField(verbose_name='Correo electrónico')
+    university = models.CharField(max_length=150, verbose_name='Universidad de afiliación')
+
+    class Meta:
+        verbose_name = 'Coautor'
+        verbose_name_plural = 'Coautores'
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.university})"
 
 class ArticleVersion(models.Model):
     article = models.ForeignKey(
@@ -111,6 +132,21 @@ class ArticleReview(models.Model):
         verbose_name='Evaluador (Comité Científico)'
     )
     # Primera evaluación (Aceptado / Rechazado):
+    originality_score = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Originalidad (1-5)'
+    )
+    relevance_score = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Pertinencia (1-5)'
+    )
+    technical_quality_score = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Calidad Técnica (1-5)'
+    )
     comments = models.TextField(
         blank=True,
         null=True,
@@ -130,6 +166,11 @@ class ArticleReview(models.Model):
     presentation_endorsement = models.BooleanField(
         default=False,
         verbose_name='Aval para presentación'
+    )
+    presentation_decision = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name='Decisión aval presentación'
     )
     presentation_endorsed_at = models.DateTimeField(
         null=True,

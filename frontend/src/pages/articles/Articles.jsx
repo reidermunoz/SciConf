@@ -1,17 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { getArticles, THEMATIC_LINES } from '../../api/articleApi';
+import { getArticles, getDeadlines, THEMATIC_LINES } from '../../api/articleApi';
 import useAuth from '../../hooks/useAuth';
 import ArticleModal from '../../components/articles/ArticleModal';
 import ArticleDetailModal from '../../components/articles/ArticleDetailModal';
 import DisableArticleModal from '../../components/articles/DisableArticleModal';
+import AssignEvaluatorsModal from '../../components/articles/AssignEvaluatorsModal';
 
 export default function Articles() {
 
-    const { user: currentUser, isAdmin, canCreateArticle, canDisableArticle } = useAuth();
+    const { user: currentUser, isAdmin, isCommittee, canCreateArticle, canDisableArticle } = useAuth();
 
     // Estados de datos
     const [articles, setArticles] = useState([]);
+    const [deadlines, setDeadlines] = useState(null);
     const [loading, setLoading] = useState(true);
 
     // Estados de filtros (al menos 2 filtros: línea temática y estado de habilitación + búsqueda)
@@ -27,6 +29,8 @@ export default function Articles() {
     const [selectedArticleDetail, setSelectedArticleDetail] = useState(null);
     const [isDisableOpen, setIsDisableOpen] = useState(false);
     const [selectedArticleToDisable, setSelectedArticleToDisable] = useState(null);
+    const [isAssignOpen, setIsAssignOpen] = useState(false);
+    const [selectedArticleToAssign, setSelectedArticleToAssign] = useState(null);
     
     // Debounce solo al escribir en búsqueda; la carga inicial y los selectores son inmediatos
     useEffect(() => {
@@ -49,7 +53,10 @@ export default function Articles() {
             if (statusFilter !== '') params.is_active = statusFilter;
             if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
             const res = await getArticles(params);
-            setArticles(res.data);
+            const visibleArticles = (isAdmin || isCommittee)
+                ? res.data
+                : res.data.filter((a) => a.author === currentUser?.id);
+            setArticles(visibleArticles);
             if (isManual) {
                 toast.success('Lista de artículos actualizada');
             }
@@ -58,10 +65,13 @@ export default function Articles() {
         } finally {
             setLoading(false);
         }
-    }, [thematicFilter, statusFilter, debouncedSearch]);
+    }, [thematicFilter, statusFilter, debouncedSearch, isAdmin, isCommittee, currentUser?.id]);
 
     useEffect(() => {
         fetchArticles();
+        getDeadlines()
+            .then((res) => setDeadlines(res.data))
+            .catch(() => {});
     }, [fetchArticles]);
 
     // Limpiar todos los filtros
@@ -95,10 +105,20 @@ export default function Articles() {
         setIsDisableOpen(true);
     };
 
+    // Abre el modal de asignación manual/asistida de jurados (solo comité o admin)
+    const handleOpenAssign = (article) => {
+        setSelectedArticleToAssign(article);
+        setIsAssignOpen(true);
+    };
+
+    const isSubmissionOpen =
+        !deadlines?.submissions_deadline ||
+        new Date() <= new Date(deadlines.submissions_deadline);
+
     // Determina si el usuario logueado puede editar este artículo en específico
     const canUserEdit = (article) => {
         if (isAdmin) return true;
-        return article.author === currentUser?.id;
+        return article.author === currentUser?.id && isSubmissionOpen;
     };
     return (
         <div className="flex flex-col gap-6">
@@ -299,6 +319,17 @@ export default function Articles() {
                                                     </button>
                                                 )}
                                                 
+                                                {/* Asignar jurados (Solo Comité o Admin, artículos activos) */}
+                                                {canDisableArticle && article.is_active && (
+                                                    <button
+                                                        onClick={() => handleOpenAssign(article)}
+                                                        className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 transition text-xs font-medium"
+                                                        title="Asignar jurados (manual o sugerido por temática)"
+                                                    >
+                                                        👥 Jurados
+                                                    </button>
+                                                )}
+
                                                 {/* Deshabilitar / Reactivar (Solo Comité o Admin) */}
                                                 {canDisableArticle && (
                                                     <button
@@ -344,6 +375,12 @@ export default function Articles() {
                 onClose={() => setIsDisableOpen(false)}
                 onUpdated={fetchArticles}
                 article={selectedArticleToDisable}
+            />
+            <AssignEvaluatorsModal
+                isOpen={isAssignOpen}
+                onClose={() => setIsAssignOpen(false)}
+                onAssigned={fetchArticles}
+                article={selectedArticleToAssign}
             />
         </div>
     );

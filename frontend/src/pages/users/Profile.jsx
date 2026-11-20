@@ -59,7 +59,8 @@ export default function Profile() {
                         last_name: response.data.last_name,
                         phone: response.data.phone,
                         institution: response.data.institution,
-                        role: response.data.role_detail?.name || user.role,
+                        roles: response.data.roles_detail?.map((r) => r.name) || user.roles || [],
+                        active_role: user.active_role,
                     });
                 }
             } catch (err) {

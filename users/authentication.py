@@ -6,8 +6,8 @@ from django.utils.translation import gettext_lazy as _
 
 class RoleAwareJWTAuthentication(JWTAuthentication):
     """
-    Igual que JWTAuthentication, pero carga el usuario junto con su rol en una sola
-    consulta (select_related). Los permisos leen `user.role` en casi todas las
+    Igual que JWTAuthentication, pero carga el usuario junto con sus roles en una
+    consulta optimizada (prefetch_related). Los permisos leen `user.roles` en casi todas las
     peticiones; sin esto cada request hacía una consulta extra a la base de datos.
     """
 
@@ -22,7 +22,7 @@ class RoleAwareJWTAuthentication(JWTAuthentication):
         try:
             user = (
                 self.user_model.objects
-                .select_related('role')
+                .prefetch_related('roles')
                 .get(**{api_settings.USER_ID_FIELD: user_id})
             )
         except self.user_model.DoesNotExist as e:

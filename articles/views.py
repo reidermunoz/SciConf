@@ -1,3 +1,5 @@
+import json
+from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from django.db.models import Q
@@ -8,16 +10,17 @@ from .permissions import IsArticleAuthorOrReadOnly, IsCommitteeMemberOrAdmin
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
 
-from .models import Article, ArticleVersion, ArticleReview, ConferenceDeadline, ArticleStatus, VersionType
+from .models import Article, ArticleCoAuthor, ArticleVersion, ArticleReview, ConferenceDeadline, ArticleStatus, VersionType
 from .serializers import (
-    ArticleSerializer, ArticleVersionSerializer,
+    ArticleSerializer, ArticleCoAuthorSerializer, ArticleVersionSerializer,
     ArticleReviewSerializer, ConferenceDeadlineSerializer
 )
 
-from .permissions import IsArticleAuthorOrReadOnly, IsCommitteeMemberOrAdmin, get_role_name, ROLE_ADMIN, ROLE_COMMITTEE
+from .permissions import IsArticleAuthorOrReadOnly, IsCommitteeMemberOrAdmin, has_role, ROLE_ADMIN, ROLE_COMMITTEE
 from .services import (
     can_submit_or_edit_initial_version, can_submit_corrections, can_submit_final_version,
     assign_evaluators_to_article, assign_evaluators_to_all_submitted,
+    suggest_evaluators_for_article,
     check_and_update_review_decision, check_and_update_endorsements
 )
 
@@ -28,7 +31,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
-        if self.action in ['disable_article', 'assign_evaluators', 'assign_all_evaluators']:
+        if self.action in ['disable_article', 'assign_evaluators', 'assign_all_evaluators', 'suggest_evaluators']:
             permission_classes = [permissions.IsAuthenticated, IsCommitteeMemberOrAdmin]
         else:
             permission_classes = [permissions.IsAuthenticated, IsArticleAuthorOrReadOnly]
@@ -39,9 +42,12 @@ class ArticleViewSet(viewsets.ModelViewSet):
         queryset = (
             Article.objects
             .select_related('author')
-            .prefetch_related('versions', 'reviews__evaluator')
+            .prefetch_related('versions', 'coauthors', 'reviews__evaluator')
             .all()
         )
+        # Los Autores visualizan únicamente sus propios artículos
+        if not has_role(self.request.user, ROLE_ADMIN, ROLE_COMMITTEE, 'Miembro del Comité Científico'):
+            queryset = queryset.filter(author=self.request.user)
         thematic_line = self.request.query_params.get('thematic_line')
         if thematic_line:
             queryset = queryset.filter(thematic_line=thematic_line)
@@ -56,8 +62,94 @@ class ArticleViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(title__icontains=search)
         return queryset
     
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+    def _parse_coauthors(self, raw_coauthors):
+        if raw_coauthors is None:
+            return None, None
+        if isinstance(raw_coauthors, str):
+            raw_coauthors = raw_coauthors.strip()
+            if not raw_coauthors:
+                return [], None
+            try:
+                raw_coauthors = json.loads(raw_coauthors)
+            except json.JSONDecodeError:
+                return None, {'coauthors': 'El formato de coautores no es válido.'}
+        if not isinstance(raw_coauthors, list):
+            return None, {'coauthors': 'Los coautores deben enviarse como una lista.'}
+        coauthor_serializer = ArticleCoAuthorSerializer(data=raw_coauthors, many=True)
+        if not coauthor_serializer.is_valid():
+            return None, {'coauthors': coauthor_serializer.errors}
+        return coauthor_serializer.validated_data, None
+
+    def create(self, request, *args, **kwargs):
+        if not has_role(request.user, ROLE_ADMIN) and not can_submit_or_edit_initial_version():
+            return Response(
+                {'error': 'El plazo de postulación inicial ha finalizado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        coauthors_data, coauthor_errors = self._parse_coauthors(request.data.get('coauthors'))
+        if coauthor_errors:
+            return Response(coauthor_errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        initial_pdf = request.FILES.get('initial_pdf')
+
+        with transaction.atomic():
+            article = serializer.save(author=request.user)
+            if coauthors_data:
+                ArticleCoAuthor.objects.bulk_create([
+                    ArticleCoAuthor(article=article, **coauthor)
+                    for coauthor in coauthors_data
+                ])
+            if initial_pdf:
+                ArticleVersion.objects.create(
+                    article=article,
+                    version_type=VersionType.INICIAL,
+                    file=initial_pdf
+                )
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(self.get_serializer(article).data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        self.check_object_permissions(request, instance)
+
+        if not has_role(request.user, ROLE_ADMIN) and not can_submit_or_edit_initial_version():
+            return Response(
+                {'error': 'No puedes editar el artículo porque el plazo de postulación ha finalizado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        has_coauthors = 'coauthors' in request.data
+        coauthors_data, coauthor_errors = (
+            self._parse_coauthors(request.data.get('coauthors')) if has_coauthors else (None, None)
+        )
+        if coauthor_errors:
+            return Response(coauthor_errors, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        initial_pdf = request.FILES.get('initial_pdf')
+
+        with transaction.atomic():
+            article = serializer.save()
+            if has_coauthors:
+                article.coauthors.all().delete()
+                if coauthors_data:
+                    ArticleCoAuthor.objects.bulk_create([
+                        ArticleCoAuthor(article=article, **coauthor)
+                        for coauthor in coauthors_data
+                    ])
+            if initial_pdf:
+                ArticleVersion.objects.create(
+                    article=article,
+                    version_type=VersionType.INICIAL,
+                    file=initial_pdf
+                )
+
+        return Response(self.get_serializer(article).data)
 
     # Subida de versiones PDF
     @action(detail=True, methods=['post'], url_path='upload-version')
@@ -65,7 +157,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
         article = self.get_object()
 
         # Solo el autor o admin pueden subir versiones
-        if article.author != request.user and get_role_name(request.user) != ROLE_ADMIN:
+        if article.author != request.user and not has_role(request.user, ROLE_ADMIN):
             return Response({'error': 'Solo el autor puede subir versiones de este artículo.'}, status=status.HTTP_403_FORBIDDEN)
         version_type = request.data.get('version_type', VersionType.INICIAL)
         file = request.FILES.get('file')
@@ -112,15 +204,22 @@ class ArticleViewSet(viewsets.ModelViewSet):
             'article_status': article.status
         }, status=status.HTTP_201_CREATED)
     
-    # Asignar 3 evaluadores a un artículo
-    @action(detail=True, methods=['post'], url_path='assign-evaluators')
+    # Sugerir evaluadores agrupados por línea temática
+    @action(detail=True, methods=['get'], url_path='suggest-evaluators')
+    def suggest_evaluators(self, request, pk=None):
+        article = self.get_object()
+        data = suggest_evaluators_for_article(article, current_user=request.user)
+        return Response(data, status=status.HTTP_200_OK)
 
+    # Asignar evaluadores (manual/asistida o aleatoria) a un artículo
+    @action(detail=True, methods=['post'], url_path='assign-evaluators')
     def assign_evaluators(self, request, pk=None):
         article = self.get_object()
-        success, message = assign_evaluators_to_article(article)
+        evaluator_ids = request.data.get('evaluator_ids')
+        success, message = assign_evaluators_to_article(article, evaluator_ids=evaluator_ids)
         if not success:
             return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
-        return Response({'message': message, 'article': ArticleSerializer(article).data})
+        return Response({'message': message, 'article': ArticleSerializer(article, context={'request': request}).data})
     
     # Asignar 3 evaluadores a todos los artículos postulados
     @action(detail=False, methods=['post'], url_path='assign-all-evaluators')
@@ -151,15 +250,14 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     def get_queryset(self):
         user = self.request.user
-        role = get_role_name(user)
         base_qs = (
             ArticleReview.objects
             .select_related('article', 'evaluator')
-            .prefetch_related('article__versions')
+            .prefetch_related('article__versions', 'article__reviews__evaluator')
         )
 
         # El Administrador ve todas las evaluaciones
-        if role == ROLE_ADMIN:
+        if has_role(user, ROLE_ADMIN):
             return base_qs.all()
         
         # El evaluador solo ve las que tiene asignadas
@@ -171,14 +269,33 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
     def submit_evaluation(self, request, pk=None):
         review = self.get_object()
 
-        if review.evaluator != request.user and get_role_name(request.user) != ROLE_ADMIN:
+        if review.evaluator != request.user and not has_role(request.user, ROLE_ADMIN):
             return Response({'error': 'No tienes permiso para calificar esta revisión.'}, status=status.HTTP_403_FORBIDDEN)
-        comments = request.data.get('comments')
+        if review.is_approved is not None:
+            return Response({'error': 'Ya enviaste tu evaluación inicial. El voto es definitivo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        comments = (request.data.get('comments') or '').strip()
         is_approved = request.data.get('is_approved')
 
-        if comments is None or is_approved is None:
+        if not comments or is_approved is None:
             return Response({'error': 'Debes enviar los comentarios y la decisión de aprobación.'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        scores = {}
+        for field in ('originality_score', 'relevance_score', 'technical_quality_score'):
+            raw_val = request.data.get(field)
+            if raw_val is None or raw_val == '':
+                return Response({'error': 'Debes calificar todos los criterios de la rúbrica (1 a 5).'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                val = int(raw_val)
+            except (TypeError, ValueError):
+                return Response({'error': 'Las calificaciones de la rúbrica deben ser números enteros entre 1 y 5.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not (1 <= val <= 5):
+                return Response({'error': 'Cada criterio de la rúbrica debe estar entre 1 y 5.'}, status=status.HTTP_400_BAD_REQUEST)
+            scores[field] = val
+
+        review.originality_score = scores['originality_score']
+        review.relevance_score = scores['relevance_score']
+        review.technical_quality_score = scores['technical_quality_score']
         review.comments = comments
         review.is_approved = bool(is_approved)
         review.reviewed_at = timezone.now()
@@ -186,28 +303,51 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
 
         # Comprobar regla de la mayoría (2 o más votos)
         _, decision_msg = check_and_update_review_decision(review.article)
+        review = self.get_object()
         return Response({
             'message': 'Evaluación registrada correctamente.',
             'decision_status': decision_msg,
-            'review': ArticleReviewSerializer(review).data
+            'review': ArticleReviewSerializer(review, context={'request': request}).data
         })
     
     # Aval para presentación
     @action(detail=True, methods=['post'], url_path='endorse-presentation')
-    
     def endorse_presentation(self, request, pk=None):
         review = self.get_object()
         
-        if review.evaluator != request.user and get_role_name(request.user) != ROLE_ADMIN:
+        if review.evaluator != request.user and not has_role(request.user, ROLE_ADMIN):
             return Response({'error': 'No tienes permiso para emitir este aval.'}, status=status.HTTP_403_FORBIDDEN)
-        review.presentation_endorsement = True
+
+        has_corrected_version = review.article.versions.filter(version_type=VersionType.CORREGIDA).exists()
+        allowed_statuses = [
+            ArticleStatus.ACEPTADO,
+            ArticleStatus.CORRECCION_ENTREGADA,
+            ArticleStatus.CON_AVAL_PRESENTACION,
+        ]
+        if review.article.status not in allowed_statuses or not has_corrected_version:
+            return Response(
+                {'error': 'Disponible cuando el artículo sea ACEPTADO y el autor suba su versión corregida.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if review.presentation_decision is not None:
+            return Response(
+                {'error': 'Ya registraste tu decisión de aval para presentación.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        approved = request.data.get('approved', True)
+        review.presentation_decision = bool(approved)
+        review.presentation_endorsement = bool(approved)
         review.presentation_endorsed_at = timezone.now()
         review.save()
         check_and_update_endorsements(review.article)
+        review = self.get_object()
         
         return Response({
-            'message': 'Aval para presentación emitido correctamente.',
-            'article_status': review.article.status
+            'message': 'Aval para presentación emitido correctamente.' if approved else 'Decisión registrada: corrección no avalada.',
+            'article_status': review.article.status,
+            'review': ArticleReviewSerializer(review, context={'request': request}).data,
         })
     
     # Aval para publicación
@@ -215,7 +355,7 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
     def endorse_publication(self, request, pk=None):
         review = self.get_object()
         
-        if review.evaluator != request.user and get_role_name(request.user) != ROLE_ADMIN:
+        if review.evaluator != request.user and not has_role(request.user, ROLE_ADMIN):
             return Response({'error': 'No tienes permiso para emitir este aval.'}, status=status.HTTP_403_FORBIDDEN)
         review.publication_endorsement = True
         review.publication_endorsed_at = timezone.now()

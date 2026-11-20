@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { getUsers, getRoles, deleteUser, updateUser } from "../../api/userApi";
-import useAuth from "../../hooks/useAuth";
+import useAuth, { ROLES, updateAuthUser } from "../../hooks/useAuth";
 
 export default function UserList({ refreshTrigger, onLoadingChange }) {
-    const { user: currentUser, canManageUsers, canChangeRoles } = useAuth();
+    const { user: currentUser, isAdmin, isCommittee, canManageUsers, canChangeRoles } = useAuth();
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -12,18 +12,34 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
+    const [openRoleMenuUserId, setOpenRoleMenuUserId] = useState(null);
 
     // Estado del modal de edición
     const [editingUser, setEditingUser] = useState(null);
     const [editForm, setEditForm] = useState({
+        username: "",
         first_name: "",
         last_name: "",
         email: "",
         phone: "",
         institution: "",
-        role: "",
+        roles: [],
         is_active: true,
     });
+
+    const adminRoleId = roles.find((r) => r.name === ROLES.ADMIN)?.id;
+    const isTargetAdmin = (targetUser) =>
+        Boolean(
+            targetUser?.roles_detail?.some((r) => r.name === ROLES.ADMIN) ||
+            (adminRoleId && (targetUser?.roles || []).includes(adminRoleId))
+        );
+    const canModifyTarget = (targetUser) =>
+        isAdmin || (canManageUsers && !isTargetAdmin(targetUser));
+    const assignableRoles = isAdmin
+        ? roles
+        : isCommittee
+        ? roles.filter((r) => r.name !== ROLES.ADMIN)
+        : [];
 
     const [saving, setSaving] = useState(false);
 
@@ -53,7 +69,8 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         fetchData(Boolean(refreshTrigger && refreshTrigger > 0));
     }, [fetchData, refreshTrigger]);
 
-    const roleName = (roleId) => roles.find((role) => role.id === roleId)?.name ?? "Sin rol";
+    const userRoleNames = (userRoleIds = []) =>
+        roles.filter((role) => userRoleIds.includes(role.id)).map((role) => role.name);
 
     // Filtros locales en la tabla
     const filteredUsers = users.filter((u) => {
@@ -63,7 +80,13 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
             u.email.toLowerCase().includes(text) ||
             (u.first_name && u.first_name.toLowerCase().includes(text)) ||
             (u.last_name && u.last_name.toLowerCase().includes(text));
-        const matchesRole = roleFilter === "" || String(u.role ?? "none") === roleFilter;
+        const userRoles = u.roles || [];
+        const matchesRole =
+            roleFilter === ""
+                ? true
+                : roleFilter === "none"
+                ? userRoles.length === 0
+                : userRoles.includes(Number(roleFilter));
         const matchesStatus =
             statusFilter === "all" ||
             (statusFilter === "active" && u.is_active) ||
@@ -108,31 +131,59 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         }
     };
 
-    // Cambiar rol de un usuario desde el selector de la tabla (solo Admin)
-    const handleRoleChange = async (userId, newRoleId) => {
+    // Activar o desactivar un rol de un usuario desde la tabla (Admin o Comité según jerarquía)
+    const handleToggleTableRole = async (targetUser, roleId) => {
+        if (!canModifyTarget(targetUser)) {
+            toast.error("No tienes permiso para modificar los roles de un Administrador.");
+            return;
+        }
+        const currentRoleIds = targetUser.roles || [];
+        const nextRoleIds = currentRoleIds.includes(roleId)
+            ? currentRoleIds.filter((id) => id !== roleId)
+            : [...currentRoleIds, roleId];
         try {
-            await updateUser(userId, { role: newRoleId ? Number(newRoleId) : null });
+            const response = await updateUser(targetUser.id, { roles: nextRoleIds });
             setUsers((current) =>
-                current.map((u) => (u.id === userId ? { ...u, role: newRoleId ? Number(newRoleId) : null } : u))
+                current.map((u) => (u.id === targetUser.id ? { ...u, ...response.data } : u))
             );
-            toast.success("Rol actualizado exitosamente");
+            if (targetUser.id === currentUser?.id) {
+                updateAuthUser({
+                    ...currentUser,
+                    roles: (response.data.roles_detail || []).map((r) => r.name),
+                });
+            }
+            toast.success("Roles actualizados exitosamente");
         } catch (err) {
-            toast.error(err.response?.data?.error || "Error al actualizar el rol");
+            toast.error(err.response?.data?.error || "Error al actualizar los roles");
         }
     };
 
     // Abrir modal de edición
     const handleOpenEdit = (targetUser) => {
+        if (!canModifyTarget(targetUser)) {
+            toast.error("No tienes permiso para editar a un Administrador del Sistema.");
+            return;
+        }
         setEditingUser(targetUser);
         setEditForm({
+            username: targetUser.username || "",
             first_name: targetUser.first_name || "",
             last_name: targetUser.last_name || "",
             email: targetUser.email || "",
             phone: targetUser.phone || "",
             institution: targetUser.institution || "",
-            role: targetUser.role || "",
+            roles: targetUser.roles || [],
             is_active: targetUser.is_active ?? true,
         });
+    };
+
+    const handleToggleEditRole = (roleId) => {
+        setEditForm((prev) => ({
+            ...prev,
+            roles: prev.roles.includes(roleId)
+                ? prev.roles.filter((id) => id !== roleId)
+                : [...prev.roles, roleId],
+        }));
     };
 
     // Guardar cambios del modal de edición
@@ -141,6 +192,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         setSaving(true);
         try {
             const payload = {
+                username: editForm.username,
                 first_name: editForm.first_name,
                 last_name: editForm.last_name,
                 email: editForm.email,
@@ -153,18 +205,32 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                 payload.is_active = editForm.is_active;
             }
             
-            // Solo si es Admin se puede cambiar el rol en el modal
-            if (canChangeRoles && editForm.role !== "") {
-                payload.role = Number(editForm.role);
+            // Admin o Comité pueden cambiar roles según jerarquía
+            if (canChangeRoles && canModifyTarget(editingUser)) {
+                payload.roles = editForm.roles;
             }
             const response = await updateUser(editingUser.id, payload);
             setUsers((current) =>
                 current.map((u) => (u.id === editingUser.id ? { ...u, ...response.data } : u))
             );
+            if (editingUser.id === currentUser?.id) {
+                updateAuthUser({
+                    ...currentUser,
+                    username: response.data.username,
+                    first_name: response.data.first_name,
+                    last_name: response.data.last_name,
+                    email: response.data.email,
+                    phone: response.data.phone,
+                    institution: response.data.institution,
+                    roles: (response.data.roles_detail || []).map((r) => r.name),
+                });
+            }
             toast.success("Usuario actualizado correctamente");
             setEditingUser(null);
         } catch (err) {
-            toast.error(err.response?.data?.error || "Error al actualizar los datos del usuario");
+            const data = err.response?.data;
+            const detailMsg = data?.error || (data && typeof data === "object" ? Object.values(data).flat().join(" ") : null);
+            toast.error(detailMsg || "Error al actualizar los datos del usuario");
         } finally {
             setSaving(false);
         }
@@ -218,7 +284,7 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                 <th className="px-4 py-3 font-medium">Usuario</th>
                                 <th className="px-4 py-3 font-medium">Correo</th>
                                 <th className="px-4 py-3 font-medium">Teléfono</th>
-                                <th className="px-4 py-3 font-medium">Rol</th>
+                                <th className="px-4 py-3 font-medium">Roles</th>
                                 <th className="px-4 py-3 font-medium">Estado</th>
                                 {canManageUsers && (
                                     <th className="px-4 py-3 text-right font-medium">Acciones</th>
@@ -245,26 +311,68 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                     </td>
                                     <td className="px-4 py-3 text-gray-600">{u.email}</td>
                                     <td className="px-4 py-3 text-gray-600">{u.phone || "—"}</td>
-                                    {/* Columna Rol */}
+                                    {/* Columna Roles */}
                                     <td className="px-4 py-3">
-                                        {canChangeRoles ? (
-                                            <select
-                                                value={u.role ?? ""}
-                                                onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                                                className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 outline-none focus:border-brand-500"
-                                            >
-                                                <option value="">Sin rol</option>
-                                                {roles.map((r) => (
-                                                    <option key={r.id} value={r.id}>
-                                                        {r.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        ) : (
-                                            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
-                                                {roleName(u.role)}
-                                            </span>
-                                        )}
+                                        {(() => {
+                                            const names = userRoleNames(u.roles || []);
+                                            const isOpen = openRoleMenuUserId === u.id;
+                                            return (
+                                                <div className="relative">
+                                                    <div className="flex flex-wrap items-center gap-1">
+                                                        {names.length > 0 ? (
+                                                            names.map((name) => (
+                                                                <span
+                                                                    key={name}
+                                                                    className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700 border border-brand-200"
+                                                                >
+                                                                    {name}
+                                                                </span>
+                                                            ))
+                                                        ) : (
+                                                            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                                                                Sin rol
+                                                            </span>
+                                                        )}
+                                                        {canChangeRoles && canModifyTarget(u) && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setOpenRoleMenuUserId(isOpen ? null : u.id)}
+                                                                className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                                                title="Asignar roles"
+                                                            >
+                                                                {isOpen ? "Cerrar" : "▾"}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {canChangeRoles && canModifyTarget(u) && isOpen && (
+                                                        <div className="absolute left-0 z-20 mt-1.5 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                                                            <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                                                                Asignar roles
+                                                            </p>
+                                                            <div className="flex flex-col gap-1">
+                                                                {assignableRoles.map((r) => {
+                                                                    const checked = (u.roles || []).includes(r.id);
+                                                                    return (
+                                                                        <label
+                                                                            key={r.id}
+                                                                            className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                onChange={() => handleToggleTableRole(u, r.id)}
+                                                                                className="size-3.5 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                                            />
+                                                                            <span>{r.name}</span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </td>
                                     {/* Columna Estado */}
                                     <td className="px-4 py-3">
@@ -280,43 +388,67 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                             </span>
                                         )}
                                     </td>
-                                    {/* Acciones: Editar, Deshabilitar/Habilitar y Eliminar (Solo Admin o Comité) */}
+                                    {/* Acciones: Editar, Deshabilitar/Habilitar y Eliminar (Admin o Comité con jerarquía) */}
                                     {canManageUsers && (
                                         <td className="px-4 py-3 text-right">
-                                            <div className="flex items-center justify-end gap-1">
-                                                <button
-                                                    onClick={() => handleOpenEdit(u)}
-                                                    className="rounded-lg px-2.5 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 transition"
-                                                >
-                                                    Editar
-                                                </button>
-                                                <button
-                                                    onClick={() => handleToggleActive(u)}
-                                                    disabled={u.id === currentUser?.id}
-                                                    title={u.id === currentUser?.id ? "No puedes deshabilitar tu propia cuenta" : ""}
-                                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                                                        u.id === currentUser?.id
-                                                            ? "cursor-not-allowed opacity-40 text-gray-400"
-                                                            : u.is_active
-                                                            ? "text-amber-600 hover:bg-amber-50"
-                                                            : "text-emerald-600 hover:bg-emerald-50"
-                                                    }`}
-                                                >
-                                                    {u.is_active ? "Deshabilitar" : "Habilitar"}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(u)}
-                                                    disabled={u.id === currentUser?.id}
-                                                    title={u.id === currentUser?.id ? "No puedes eliminar tu propia cuenta" : ""}
-                                                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                                                        u.id === currentUser?.id
-                                                            ? "cursor-not-allowed opacity-40 text-gray-400"
-                                                            : "text-red-600 hover:bg-red-50"
-                                                    }`}
-                                                >
-                                                    Eliminar
-                                                </button>
-                                            </div>
+                                            {(() => {
+                                                const allowed = canModifyTarget(u);
+                                                const isSelf = u.id === currentUser?.id;
+                                                return (
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <button
+                                                            onClick={() => handleOpenEdit(u)}
+                                                            disabled={!allowed}
+                                                            title={!allowed ? "No puedes editar a un Administrador del Sistema" : ""}
+                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                                !allowed
+                                                                    ? "cursor-not-allowed opacity-40 text-gray-400"
+                                                                    : "text-brand-600 hover:bg-brand-50"
+                                                            }`}
+                                                        >
+                                                            Editar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleToggleActive(u)}
+                                                            disabled={isSelf || !allowed}
+                                                            title={
+                                                                isSelf
+                                                                    ? "No puedes deshabilitar tu propia cuenta"
+                                                                    : !allowed
+                                                                    ? "No puedes deshabilitar a un Administrador del Sistema"
+                                                                    : ""
+                                                            }
+                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                                isSelf || !allowed
+                                                                    ? "cursor-not-allowed opacity-40 text-gray-400"
+                                                                    : u.is_active
+                                                                    ? "text-amber-600 hover:bg-amber-50"
+                                                                    : "text-emerald-600 hover:bg-emerald-50"
+                                                            }`}
+                                                        >
+                                                            {u.is_active ? "Deshabilitar" : "Habilitar"}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDelete(u)}
+                                                            disabled={isSelf || !allowed}
+                                                            title={
+                                                                isSelf
+                                                                    ? "No puedes eliminar tu propia cuenta"
+                                                                    : !allowed
+                                                                    ? "No puedes eliminar a un Administrador del Sistema"
+                                                                    : ""
+                                                            }
+                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                                isSelf || !allowed
+                                                                    ? "cursor-not-allowed opacity-40 text-gray-400"
+                                                                    : "text-red-600 hover:bg-red-50"
+                                                            }`}
+                                                        >
+                                                            Eliminar
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                     )}
                                 </tr>
@@ -356,6 +488,16 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                             </button>
                         </div>
                         <form onSubmit={handleSaveEdit} className="flex flex-col gap-3.5">
+                            <div>
+                                <label className="mb-1 block text-xs font-medium text-gray-700">Nombre de usuario</label>
+                                <input
+                                    type="text"
+                                    value={editForm.username}
+                                    onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                                    required
+                                    className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                />
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="mb-1 block text-xs font-medium text-gray-700">Nombre</label>
@@ -408,22 +550,26 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                     />
                                 </div>
                             </div>
-                            {/* Solo el Administrador puede cambiar el rol en el modal */}
-                            {canChangeRoles && (
+                            {/* Admin o Comité pueden cambiar los roles en el modal (Comité solo Autor o Comité) */}
+                            {canChangeRoles && canModifyTarget(editingUser) && (
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-gray-700">Rol en el sistema</label>
-                                    <select
-                                        value={editForm.role}
-                                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                                        className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
-                                    >
-                                        <option value="">Sin rol</option>
-                                        {roles.map((r) => (
-                                            <option key={r.id} value={r.id}>
-                                                {r.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <label className="mb-1.5 block text-xs font-medium text-gray-700">Roles en el sistema</label>
+                                    <div className="flex flex-col gap-2 rounded-lg border border-gray-300 p-3">
+                                        {assignableRoles.map((r) => {
+                                            const checked = editForm.roles.includes(r.id);
+                                            return (
+                                                <label key={r.id} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => handleToggleEditRole(r.id)}
+                                                        className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                    />
+                                                    <span>{r.name}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             )}
                             {/* Estado activo / inactivo en el modal si no es la propia cuenta */}
