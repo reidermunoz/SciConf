@@ -45,15 +45,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
             .prefetch_related('versions', 'coauthors', 'reviews__evaluator')
             .all()
         )
-        # Los Autores visualizan únicamente sus propios artículos
+        # Los artículos deshabilitados desaparecen de las consultas
+        queryset = queryset.filter(is_active=True)
+        # Los Autores visualizan sus propios artículos y aquellos donde figuran como coautores
         if not has_role(self.request.user, ROLE_ADMIN, ROLE_COMMITTEE, 'Miembro del Comité Científico'):
-            queryset = queryset.filter(author=self.request.user)
+            queryset = queryset.filter(
+                Q(author=self.request.user) | Q(coauthors__email__iexact=self.request.user.email)
+            ).distinct()
         thematic_line = self.request.query_params.get('thematic_line')
         if thematic_line:
             queryset = queryset.filter(thematic_line=thematic_line)
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            queryset = queryset.filter(is_active=is_active.lower() in ['true', '1'])
         status_param = self.request.query_params.get('status')
         if status_param:
             queryset = queryset.filter(status=status_param)
@@ -156,8 +157,8 @@ class ArticleViewSet(viewsets.ModelViewSet):
     def upload_version(self, request, pk=None):
         article = self.get_object()
 
-        # Solo el autor o admin pueden subir versiones
-        if article.author != request.user and not has_role(request.user, ROLE_ADMIN):
+        # Solo el autor puede subir versiones de su propio artículo
+        if article.author != request.user:
             return Response({'error': 'Solo el autor puede subir versiones de este artículo.'}, status=status.HTTP_403_FORBIDDEN)
         version_type = request.data.get('version_type', VersionType.INICIAL)
         file = request.FILES.get('file')

@@ -85,10 +85,31 @@ class ArticleReviewSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get('request')
         user = request.user if request else None
-        # Oculta siempre la identidad de los jurados para usuarios que no son Admin o Comité
-        if user and not has_role(user, ADMIN, *COMMITTEE_ROLES):
-            data.pop('evaluator', None)
-            data['evaluator_name'] = None
+        has_evaluated = instance.is_approved is not None
+        data['has_evaluated'] = has_evaluated
+        data['is_hidden_until_own_vote'] = False
+
+        if user:
+            is_admin = has_role(user, ADMIN)
+            is_committee = has_role(user, *COMMITTEE_ROLES)
+            # Oculta siempre la identidad de los jurados para usuarios que no son Admin o Comité
+            if not is_admin and not is_committee:
+                data.pop('evaluator', None)
+                data['evaluator_name'] = None
+            # Si es Comité (no Admin) y es jurado del artículo sin haber votado, oculta evaluaciones de pares
+            elif not is_admin and instance.evaluator_id != user.id:
+                own_pending = any(
+                    r.evaluator_id == user.id and r.is_approved is None
+                    for r in instance.article.reviews.all()
+                )
+                if own_pending:
+                    data['is_hidden_until_own_vote'] = True
+                    data['originality_score'] = None
+                    data['relevance_score'] = None
+                    data['technical_quality_score'] = None
+                    data['comments'] = None
+                    data['is_approved'] = None
+                    data['reviewed_at'] = None
         return data
 
 
@@ -101,6 +122,7 @@ class ArticleCoAuthorSerializer(serializers.ModelSerializer):
 class ArticleSerializer(serializers.ModelSerializer):
     author_name = serializers.SerializerMethodField()
     author_email = serializers.EmailField(source='author.email', read_only=True)
+    author_institution = serializers.CharField(source='author.institution', read_only=True)
     versions = ArticleVersionSerializer(many=True, read_only=True)
     coauthors = ArticleCoAuthorSerializer(many=True, read_only=True)
     reviews = ArticleReviewSerializer(many=True, read_only=True)
@@ -108,11 +130,15 @@ class ArticleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Article
         fields = [
-            'id', 'title', 'abstract', 'keywords', 'thematic_line', 'author', 'author_name', 'author_email',
+            'id', 'title', 'abstract', 'keywords', 'thematic_line',
+            'author', 'author_name', 'author_email', 'author_institution',
             'status', 'is_active', 'deactivation_reason', 'created_at', 'updated_at',
             'versions', 'coauthors', 'reviews'
         ]
-        read_only_fields = ['author', 'author_name', 'author_email', 'status', 'created_at', 'updated_at']
+        read_only_fields = [
+            'author', 'author_name', 'author_email', 'author_institution', 'status',
+            'is_active', 'deactivation_reason', 'created_at', 'updated_at'
+        ]
         
     def get_author_name(self, obj):
         return obj.author.get_full_name() or obj.author.username

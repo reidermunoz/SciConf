@@ -57,9 +57,12 @@ export default function DisableArticleModal({ isOpen, onClose, onUpdated, articl
                 <form onSubmit={handleAction} className="flex flex-col gap-4">
                     {isCurrentlyActive ? (
                         <>
-                            <p className="text-sm text-gray-600">
-                                Al deshabilitar este artículo, no formará parte del programa de la conferencia.
-                            </p>
+                            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                                <p className="font-semibold">⚠️ Advertencia: acción irreversible</p>
+                                <p className="mt-1">
+                                    Al deshabilitar este artículo, se retirará permanentemente de las consultas y de la agenda de la conferencia.
+                                </p>
+                            </div>
                             <div>
                                 <label className="mb-1 block text-sm font-medium text-gray-700">
                                     Motivo de deshabilitación <span className="text-red-500">*</span>

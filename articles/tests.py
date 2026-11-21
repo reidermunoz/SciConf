@@ -270,6 +270,103 @@ class ArticleListQueryCountTests(APITestCase):
         self.assertEqual(e1.status_code, status.HTTP_200_OK)
         self.assertEqual(e1.data['article_status'], ArticleStatus.CON_AVAL_PRESENTACION)
 
+    def test_only_author_can_edit_own_article(self):
+        role_admin, _ = Role.objects.get_or_create(name='Administrador del Sistema')
+        admin_user = User.objects.create_user(
+            username='admin_art', email='admin_art@test.com', password='Password123!'
+        )
+        admin_user.roles.add(role_admin)
+
+        article = Article.objects.create(
+            title='Artículo Propio',
+            abstract='Resumen',
+            keywords='Test',
+            thematic_line='Sistemas Inteligentes',
+            author=self.author,
+        )
+
+        # Admin no puede editar artículo de otro autor
+        admin_token = RefreshToken.for_user(admin_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_token}')
+        res = self.client.patch(f'/api/v1/articles/{article.id}/', {'title': 'Editado por Admin'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_evaluator_assignment_rules_workload_conflict_and_preserve_evaluated(self):
+        from .models import ArticleCoAuthor
+
+        juror4 = User.objects.create_user(
+            username='jurado3', email='jurado3@test.com', password='Password123!'
+        )
+        juror4.roles.add(self.role_committee)
+
+        # Dar 3 artículos asignados a evaluators[2] para llenar su cupo
+        for idx in range(3):
+            extra = Article.objects.create(
+                title=f'Extra {idx}', abstract='Abs', keywords='K',
+                thematic_line='Sistemas Inteligentes', author=self.author
+            )
+            ArticleReview.objects.create(article=extra, evaluator=self.evaluators[2])
+
+        target = Article.objects.create(
+            title='Artículo Reglas', abstract='Abs', keywords='K',
+            thematic_line='Sistemas Inteligentes', author=self.author
+        )
+        # evaluators[1] es coautor -> conflicto de interés
+        ArticleCoAuthor.objects.create(
+            article=target,
+            first_name='Jurado',
+            last_name='Uno',
+            email=self.evaluators[1].email,
+            university='Uni Test',
+        )
+
+        token = RefreshToken.for_user(self.evaluators[0]).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        suggest = self.client.get(f'/api/v1/articles/{target.id}/suggest-evaluators/')
+        self.assertEqual(suggest.status_code, status.HTTP_200_OK)
+        by_id = {c['id']: c for c in suggest.data['candidates']}
+        self.assertTrue(by_id[self.evaluators[1].id]['has_conflict'])
+        self.assertTrue(by_id[self.evaluators[2].id]['is_full'])
+
+        # Intentar asignar menos de 3 (sin limpiar) debe fallar
+        res_two = self.client.post(
+            f'/api/v1/articles/{target.id}/assign-evaluators/',
+            {'evaluator_ids': [self.evaluators[0].id, juror4.id]},
+            format='json'
+        )
+        self.assertEqual(res_two.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Intentar asignar al coautor debe fallar
+        res_conflict = self.client.post(
+            f'/api/v1/articles/{target.id}/assign-evaluators/',
+            {'evaluator_ids': [self.evaluators[0].id, self.evaluators[1].id, juror4.id]},
+            format='json'
+        )
+        self.assertEqual(res_conflict.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Intentar asignar a quien ya tiene 3/3 debe fallar
+        res_full = self.client.post(
+            f'/api/v1/articles/{target.id}/assign-evaluators/',
+            {'evaluator_ids': [self.evaluators[0].id, self.evaluators[2].id, juror4.id]},
+            format='json'
+        )
+        self.assertEqual(res_full.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Si evaluators[0] ya evaluó, limpiar pendientes lo conserva
+        ArticleReview.objects.create(
+            article=target, evaluator=self.evaluators[0],
+            comments='Bien', is_approved=True
+        )
+        ArticleReview.objects.create(article=target, evaluator=juror4)
+        res_clear_pending = self.client.post(
+            f'/api/v1/articles/{target.id}/assign-evaluators/',
+            {'evaluator_ids': [self.evaluators[0].id]},
+            format='json'
+        )
+        self.assertEqual(res_clear_pending.status_code, status.HTTP_200_OK)
+        self.assertEqual(list(target.reviews.values_list('evaluator_id', flat=True)), [self.evaluators[0].id])
+
     def test_authenticated_request_loads_role_without_extra_query(self):
         """Autenticar y evaluar permisos no debe requerir una consulta aparte para el rol."""
         self._create_articles(1)

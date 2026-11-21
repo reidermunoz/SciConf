@@ -399,26 +399,33 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                                         <button
                                                             onClick={() => handleOpenEdit(u)}
                                                             disabled={!allowed}
-                                                            title={!allowed ? "No puedes editar a un Administrador del Sistema" : ""}
-                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                            aria-label="Editar usuario"
+                                                            title={!allowed ? "No puedes editar a un Administrador del Sistema" : "Editar usuario"}
+                                                            className={`rounded-lg p-1.5 transition ${
                                                                 !allowed
                                                                     ? "cursor-not-allowed opacity-40 text-gray-400"
                                                                     : "text-brand-600 hover:bg-brand-50"
                                                             }`}
                                                         >
-                                                            Editar
+                                                            <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                                <path d="M12 20h9" />
+                                                                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                            </svg>
                                                         </button>
                                                         <button
                                                             onClick={() => handleToggleActive(u)}
                                                             disabled={isSelf || !allowed}
+                                                            aria-label={u.is_active ? "Deshabilitar usuario" : "Habilitar usuario"}
                                                             title={
                                                                 isSelf
                                                                     ? "No puedes deshabilitar tu propia cuenta"
                                                                     : !allowed
                                                                     ? "No puedes deshabilitar a un Administrador del Sistema"
-                                                                    : ""
+                                                                    : u.is_active
+                                                                    ? "Deshabilitar usuario"
+                                                                    : "Habilitar usuario"
                                                             }
-                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                            className={`rounded-lg p-1.5 transition ${
                                                                 isSelf || !allowed
                                                                     ? "cursor-not-allowed opacity-40 text-gray-400"
                                                                     : u.is_active
@@ -426,25 +433,41 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                                                                     : "text-emerald-600 hover:bg-emerald-50"
                                                             }`}
                                                         >
-                                                            {u.is_active ? "Deshabilitar" : "Habilitar"}
+                                                            {u.is_active ? (
+                                                                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                                    <circle cx="12" cy="12" r="9" />
+                                                                    <path d="m5.6 5.6 12.8 12.8" />
+                                                                </svg>
+                                                            ) : (
+                                                                <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                                    <circle cx="12" cy="12" r="9" />
+                                                                    <path d="m9 12 2 2 4-4" />
+                                                                </svg>
+                                                            )}
                                                         </button>
                                                         <button
                                                             onClick={() => handleDelete(u)}
                                                             disabled={isSelf || !allowed}
+                                                            aria-label="Eliminar usuario"
                                                             title={
                                                                 isSelf
                                                                     ? "No puedes eliminar tu propia cuenta"
                                                                     : !allowed
                                                                     ? "No puedes eliminar a un Administrador del Sistema"
-                                                                    : ""
+                                                                    : "Eliminar usuario"
                                                             }
-                                                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                                                            className={`rounded-lg p-1.5 transition ${
                                                                 isSelf || !allowed
                                                                     ? "cursor-not-allowed opacity-40 text-gray-400"
                                                                     : "text-red-600 hover:bg-red-50"
                                                             }`}
                                                         >
-                                                            Eliminar
+                                                            <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                                <path d="M3 6h18" />
+                                                                <path d="M8 6V4h8v2" />
+                                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                                                                <path d="M10 11v6M14 11v6" />
+                                                            </svg>
                                                         </button>
                                                     </div>
                                                 );

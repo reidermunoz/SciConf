@@ -1,9 +1,40 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import useAuth from '../../hooks/useAuth';
-import { getArticles, getMyReviews, assignAllEvaluators, getDeadlines } from '../../api/articleApi';
+import { getArticles, getMyReviews, getDeadlines } from '../../api/articleApi';
 import UploadVersionModal from '../../components/articles/UploadVersionModal';
 import ReviewModal from '../../components/articles/ReviewModal';
+import AssignEvaluatorsModal from '../../components/articles/AssignEvaluatorsModal';
+
+const STATUS_BADGE_MAP = {
+    POSTULADO: { label: 'POSTULADO', cls: 'bg-gray-100 text-gray-700 border-gray-200' },
+    EN_REVISION: { label: 'EN REVISIÓN', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    ACEPTADO: { label: 'ACEPTADO', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    RECHAZADO: { label: 'RECHAZADO', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    CORRECCION_ENTREGADA: { label: 'Corrección entregada', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    CON_AVAL_PRESENTACION: { label: 'CON AVAL PARA PRESENTACIÓN', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+    FINAL_ENTREGADO: { label: 'VERSIÓN FINAL ENTREGADA', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+    CON_AVAL_PUBLICACION: { label: 'CON AVAL PARA PUBLICACIÓN', cls: 'bg-teal-50 text-teal-700 border-teal-200' },
+};
+
+const getActivePhaseDeadline = (articleStatus, deadlines, isAuthorView = false) => {
+    if (!deadlines) return null;
+    if (isAuthorView && articleStatus === 'POSTULADO') {
+        return { label: 'Límite postulación', date: deadlines.submissions_deadline };
+    }
+    if (['POSTULADO', 'EN_REVISION'].includes(articleStatus)) {
+        return { label: 'Límite revisión', date: deadlines.reviews_deadline };
+    }
+    if (['ACEPTADO', 'CORRECCION_ENTREGADA'].includes(articleStatus)) {
+        return { label: 'Límite correcciones', date: deadlines.corrections_deadline };
+    }
+    return { label: 'Límite final', date: deadlines.final_deadline };
+};
+
+const computeAverage = (o, r, t) => {
+    if (!o || !r || !t) return null;
+    return ((Number(o) + Number(r) + Number(t)) / 3).toFixed(1);
+};
 
 export default function Versions() {
 
@@ -17,13 +48,20 @@ export default function Versions() {
     const [myReviews, setMyReviews] = useState([]);
     const [deadlines, setDeadlines] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [assigningAll, setAssigningAll] = useState(false);
+
+    // Filtros y estado de supervisión (Admin)
+    const [adminSearch, setAdminSearch] = useState('');
+    const [adminStatusFilter, setAdminStatusFilter] = useState('');
+    const [expandedReviewsMap, setExpandedReviewsMap] = useState({});
 
     // Modales
     const [selectedArticleForUpload, setSelectedArticleForUpload] = useState(null);
+    const [uploadFixedType, setUploadFixedType] = useState(null);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [selectedReview, setSelectedReview] = useState(null);
     const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [selectedArticleForAssign, setSelectedArticleForAssign] = useState(null);
+    const [isAssignOpen, setIsAssignOpen] = useState(false);
 
     // Cargar datos en paralelo para reducir el tiempo total de espera
     const fetchData = useCallback(async (isManual = false) => {
@@ -43,13 +81,22 @@ export default function Versions() {
                     getArticles().then((artRes) => {
                         const filtered = isAdmin
                             ? artRes.data
-                            : artRes.data.filter((a) => a.author === currentUser?.id);
+                            : artRes.data.filter(
+                                  (a) =>
+                                      a.author === currentUser?.id ||
+                                      (a.coauthors || []).some(
+                                          (c) =>
+                                              c.email &&
+                                              currentUser?.email &&
+                                              c.email.toLowerCase() === currentUser.email.toLowerCase()
+                                      )
+                              );
                         setMyArticles(filtered);
                     })
                 );
             }
 
-            if (isCommittee || isAdmin) {
+            if (isCommittee) {
                 tasks.push(
                     getMyReviews().then((revRes) => {
                         setMyReviews(revRes.data);
@@ -72,37 +119,19 @@ export default function Versions() {
         fetchData();
     }, [fetchData]);
 
-    // Asignación masiva de evaluadores (solo Admin)
-    const handleAssignAll = async () => {
-        if (!window.confirm('¿Deseas asignar 3 evaluadores del comité científico a todos los artículos en estado POSTULADO?')) {
-            return;
-        }
-        setAssigningAll(true);
-        try {
-            const res = await assignAllEvaluators();
-            toast.success(res.data.message || 'Evaluadores asignados con éxito');
-            fetchData();
-        } catch (err) {
-            toast.error(err.response?.data?.error || 'Error al asignar evaluadores');
-        } finally {
-            setAssigningAll(false);
-        }
+    const toggleAdminReviews = (articleId) => {
+        setExpandedReviewsMap((prev) => ({ ...prev, [articleId]: !prev[articleId] }));
     };
 
-    // Color del badge de estado
-    const getStatusBadge = (status) => {
-        const map = {
-            POSTULADO: 'bg-blue-100 text-blue-800',
-            EN_REVISION: 'bg-amber-100 text-amber-800',
-            ACEPTADO: 'bg-green-100 text-green-800',
-            RECHAZADO: 'bg-red-100 text-red-800',
-            CORRECCION_ENTREGADA: 'bg-indigo-100 text-indigo-800',
-            CON_AVAL_PRESENTACION: 'bg-teal-100 text-teal-800',
-            FINAL_ENTREGADO: 'bg-purple-100 text-purple-800',
-            CON_AVAL_PUBLICACION: 'bg-emerald-100 text-emerald-800',
-        };
-        return map[status] || 'bg-gray-100 text-gray-700';
-    };
+    const displayedArticles = isAdmin
+        ? myArticles.filter((art) => {
+              const matchesSearch =
+                  !adminSearch.trim() ||
+                  (art.title || '').toLowerCase().includes(adminSearch.trim().toLowerCase());
+              const matchesStatus = !adminStatusFilter || art.status === adminStatusFilter;
+              return matchesSearch && matchesStatus;
+          })
+        : myArticles;
 
     return (
         <div className="flex flex-col gap-6">
@@ -140,17 +169,6 @@ export default function Versions() {
                         </svg>
                         <span>Actualizar</span>
                     </button>
-
-                    {/* Acción especial de Administrador */}
-                    {isAdmin && (
-                        <button
-                            onClick={handleAssignAll}
-                            disabled={assigningAll}
-                            className="rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-brand-600 transition disabled:opacity-50"
-                        >
-                            {assigningAll ? 'Asignando...' : '⚡ Asignar 3 evaluadores a postulados'}
-                        </button>
-                    )}
                 </div>
             </div>
             
@@ -165,10 +183,10 @@ export default function Versions() {
                                 : 'border-transparent text-gray-500 hover:text-gray-700'
                         }`}
                     >
-                        📄 Artículos y Versiones ({myArticles.length})
+                        📄 Artículos y Versiones ({displayedArticles.length})
                     </button>
                 )}
-                {(isCommittee || isAdmin) && (
+                {isCommittee && (
                     <button
                         onClick={() => setActiveTab('my-reviews')}
                         className={`border-b-2 px-5 py-3 text-sm font-medium transition ${
@@ -177,7 +195,7 @@ export default function Versions() {
                                 : 'border-transparent text-gray-500 hover:text-gray-700'
                         }`}
                     >
-                        ⚖️ Mis Revisiones Asignadas ({myReviews.length})
+                        ⚖️ Mis Revisiones Asignadas ({myReviews.length} / 3)
                     </button>
                 )}
             </div>
@@ -189,107 +207,381 @@ export default function Versions() {
                 </div>
             ) : activeTab === 'my-articles' ? (
 
-                /* TAB 1: Artículos del Autor */
+                /* TAB 1: Artículos (Autor o Supervisión Global Admin) */
                 <div className="flex flex-col gap-4">
-                    {myArticles.length === 0 ? (
+                    {isAdmin && (
+                        <div className="grid grid-cols-1 gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-xs sm:grid-cols-2">
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-gray-600">Buscar por título</label>
+                                <input
+                                    type="search"
+                                    value={adminSearch}
+                                    onChange={(e) => setAdminSearch(e.target.value)}
+                                    placeholder="Buscar artículo por título..."
+                                    className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1 block text-xs font-semibold text-gray-600">Estado del artículo</label>
+                                <select
+                                    value={adminStatusFilter}
+                                    onChange={(e) => setAdminStatusFilter(e.target.value)}
+                                    className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-brand-500"
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="POSTULADO">POSTULADO</option>
+                                    <option value="EN_REVISION">EN REVISIÓN</option>
+                                    <option value="ACEPTADO">ACEPTADO</option>
+                                    <option value="RECHAZADO">RECHAZADO</option>
+                                    <option value="CON_AVAL_PRESENTACION">CON AVAL PARA PRESENTACIÓN</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+
+                    {displayedArticles.length === 0 ? (
                         <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center">
-                            <p className="text-gray-600 font-medium">No tienes artículos postulados.</p>
-                            <p className="text-xs text-gray-400 mt-1">Crea un artículo en el módulo de Artículos para comenzar.</p>
+                            <p className="text-gray-600 font-medium">
+                                {isAdmin ? 'No se encontraron artículos con los filtros seleccionados.' : 'No tienes artículos postulados.'}
+                            </p>
+                            {!isAdmin && (
+                                <p className="text-xs text-gray-400 mt-1">Crea un artículo en el módulo de Artículos para comenzar.</p>
+                            )}
                         </div>
                     ) : (
-                        myArticles.map((art) => (
-                            <div key={art.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                                                {art.thematic_line}
-                                            </span>
-                                            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusBadge(art.status)}`}>
-                                                {art.status}
-                                            </span>
-                                        </div>
-                                        <h3 className="mt-1 text-lg font-bold text-gray-800">{art.title}</h3>
-                                        <p className="text-xs text-gray-500 mt-0.5">Autor: {art.author_name}</p>
-                                    </div>
-                                    
-                                    {/* Botón para subir versión */}
-                                    <button
-                                        onClick={() => {
-                                            setSelectedArticleForUpload(art);
-                                            setIsUploadOpen(true);
-                                        }}
-                                        className="shrink-0 rounded-lg bg-brand-50 px-3.5 py-2 text-xs font-semibold text-brand-600 hover:bg-brand-100 transition"
-                                    >
-                                        📤 Subir / Cambiar Versión
-                                    </button>
-                                </div>
-                                
-                                {/* Versiones entregadas */}
-                                <div className="mt-4 border-t pt-3">
-                                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                                        Versiones entregadas:
-                                    </h4>
-                                    {art.versions && art.versions.length > 0 ? (
-                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                            {art.versions.map((ver) => (
-                                                <div key={ver.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 border border-gray-100 text-xs">
-                                                    <div>
-                                                        <p className="font-semibold text-gray-700">{ver.version_type}</p>
-                                                        <p className="text-gray-400">{new Date(ver.created_at).toLocaleDateString()}</p>
-                                                    </div>
-                                                    <div className="flex gap-1.5">
-                                                        {ver.file && (
-                                                            <a
-                                                                href={ver.file}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="rounded bg-white px-2 py-1 font-medium text-brand-600 border border-gray-200 hover:bg-brand-50"
-                                                            >
-                                                                PDF
-                                                            </a>
-                                                        )}
-                                                        {ver.copyright_file && (
-                                                            <a
-                                                                href={ver.copyright_file}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="rounded bg-white px-2 py-1 font-medium text-amber-700 border border-amber-200 hover:bg-amber-50"
-                                                            >
-                                                                Copyright
-                                                            </a>
-                                                        )}
-                                                    </div>
+                        displayedArticles.map((art) => {
+                            const statusInfo = STATUS_BADGE_MAP[art.status] || {
+                                label: art.status || 'POSTULADO',
+                                cls: 'bg-gray-100 text-gray-700 border-gray-200',
+                            };
+                            const phaseDeadline = getActivePhaseDeadline(art.status, deadlines, !isAdmin);
+                            const isPrincipalAuthor = art.author === currentUser?.id;
+                            const isSubmissionOpen =
+                                !deadlines?.submissions_deadline ||
+                                new Date() <= new Date(deadlines.submissions_deadline);
+                            const isCorrectionOpen =
+                                !deadlines?.corrections_deadline ||
+                                new Date() <= new Date(deadlines.corrections_deadline);
+
+                            const uploadConfig = (() => {
+                                if (isAdmin) return null;
+                                if (art.status === 'POSTULADO') {
+                                    return {
+                                        label: '📤 Reemplazar PDF Inicial',
+                                        fixedType: 'INICIAL',
+                                        enabled: isPrincipalAuthor && isSubmissionOpen,
+                                        title: !isPrincipalAuthor
+                                            ? `Solo el autor principal (${art.author_name}) puede subir versiones`
+                                            : !isSubmissionOpen
+                                            ? 'El plazo de postulaciones ha finalizado'
+                                            : 'Reemplazar propuesta inicial (PDF)',
+                                    };
+                                }
+                                if (art.status === 'ACEPTADO') {
+                                    return {
+                                        label: '📤 Subir Versión Corregida',
+                                        fixedType: 'CORREGIDA',
+                                        enabled: isPrincipalAuthor && isCorrectionOpen,
+                                        title: !isPrincipalAuthor
+                                            ? `Solo el autor principal (${art.author_name}) puede subir versiones`
+                                            : !isCorrectionOpen
+                                            ? 'El plazo de entrega de correcciones ha finalizado'
+                                            : 'Subir versión corregida para presentación (PDF)',
+                                    };
+                                }
+                                return null;
+                            })();
+
+                            const reviews = art.reviews || [];
+                            const endorsementsCount = reviews.filter((r) => r.presentation_endorsement).length;
+                            const pubEndorsementsCount = reviews.some((r) => r.publication_endorsement) ? 1 : 0;
+                            const evaluatedReviews = reviews.filter(
+                                (r) => r.is_approved !== null || r.comments
+                            );
+                            const isExpanded = Boolean(expandedReviewsMap[art.id]);
+
+                            return (
+                                <div key={art.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                                    {art.thematic_line}
+                                                </span>
+                                                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusInfo.cls}`}>
+                                                    {statusInfo.label}
+                                                </span>
+                                                {phaseDeadline?.date && (
+                                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-800">
+                                                        📅 {phaseDeadline.label}: {new Date(phaseDeadline.date).toLocaleDateString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <h3 className="mt-1.5 text-lg font-bold text-gray-800">{art.title}</h3>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                Autor principal: <span className="font-medium text-gray-700">{art.author_name}</span>
+                                            </p>
+
+                                            {/* Coautores si existen */}
+                                            {art.coauthors && art.coauthors.length > 0 && (
+                                                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                                                    <span className="font-medium text-gray-600">Coautores:</span>
+                                                    {art.coauthors.map((c, idx) => (
+                                                        <span
+                                                            key={c.id || idx}
+                                                            className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700"
+                                                        >
+                                                            {c.first_name} {c.last_name} ({c.university})
+                                                        </span>
+                                                    ))}
                                                 </div>
-                                            ))}
+                                            )}
                                         </div>
-                                    ) : (
-                                        <p className="text-xs text-amber-600 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
-                                            ⚠️ Aún no has subido el PDF de la propuesta inicial para este artículo.
-                                        </p>
+
+                                        {/* Botón en esquina superior derecha: Asignar / Ver Jurados (Admin) o Subir versión (Autor) */}
+                                        {isAdmin ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedArticleForAssign(art);
+                                                    setIsAssignOpen(true);
+                                                }}
+                                                className="shrink-0 rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
+                                            >
+                                                👥 Asignar / Ver Jurados ({reviews.length}/3)
+                                            </button>
+                                        ) : uploadConfig && (
+                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedArticleForUpload(art);
+                                                        setUploadFixedType(uploadConfig.fixedType);
+                                                        setIsUploadOpen(true);
+                                                    }}
+                                                    disabled={!uploadConfig.enabled}
+                                                    title={uploadConfig.title}
+                                                    className="rounded-lg bg-brand-50 border border-brand-200 px-3.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    {uploadConfig.label}
+                                                </button>
+                                                {!isPrincipalAuthor && (
+                                                    <span className="text-[11px] text-amber-700">
+                                                        Autor responsable: {art.author_name}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Progreso hacia aval de presentación cuando entregó corrección */}
+                                    {art.status === 'CORRECCION_ENTREGADA' && (
+                                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-xs text-amber-900">
+                                            ⏳ <strong>Corrección entregada:</strong> en verificación del comité ({endorsementsCount} de 3 avales recibidos; se requieren 2 de 3 para obtener el aval de presentación).
+                                        </div>
                                     )}
-                                </div>
-                                
-                                {/* Observaciones de jurados si existen */}
-                                {art.reviews && art.reviews.some((r) => r.comments) && (
+
+                                    {/* Versiones entregadas */}
                                     <div className="mt-4 border-t pt-3">
                                         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                                            Retroalimentación del Comité Científico:
+                                            Versiones entregadas:
                                         </h4>
-                                        <div className="flex flex-col gap-2">
-                                            {art.reviews
-                                                .filter((r) => r.comments)
-                                                .map((r, idx) => (
-                                                    <div key={r.id} className="rounded-xl bg-gray-50/80 p-3 border border-gray-100 text-xs">
-                                                        <span className="font-semibold text-gray-700">Jurado {idx + 1}: </span>
-                                                        <span className="text-gray-600 italic">"{r.comments}"</span>
+                                        {art.versions && art.versions.length > 0 ? (
+                                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                                {art.versions.map((ver) => (
+                                                    <div key={ver.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 border border-gray-100 text-xs">
+                                                        <div>
+                                                            <p className="font-semibold text-gray-700">{ver.version_type}</p>
+                                                            <p className="text-gray-400">{new Date(ver.created_at).toLocaleDateString()}</p>
+                                                        </div>
+                                                        <div className="flex gap-1.5">
+                                                            {ver.file && (
+                                                                <a
+                                                                    href={ver.file}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="rounded bg-white px-2 py-1 font-medium text-brand-600 border border-gray-200 hover:bg-brand-50"
+                                                                >
+                                                                    PDF
+                                                                </a>
+                                                            )}
+                                                            {ver.copyright_file && (
+                                                                <a
+                                                                    href={ver.copyright_file}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="rounded bg-white px-2 py-1 font-medium text-amber-700 border border-amber-200 hover:bg-amber-50"
+                                                                >
+                                                                    Copyright
+                                                                </a>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 ))}
-                                        </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-amber-600 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                                                {isAdmin
+                                                    ? '⚠️ El autor aún no ha subido el PDF de la propuesta inicial.'
+                                                    : '⚠️ Aún no has subido el PDF de la propuesta inicial para este artículo.'}
+                                            </p>
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        ))
+
+                                    {/* Supervisión de Jurados, Evaluaciones y Avales (Solo Administrador) */}
+                                    {isAdmin && (
+                                        <div className="mt-4 border-t pt-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                                    Estado de Revisión y Avales
+                                                </h4>
+                                                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                                    <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 font-semibold text-indigo-700">
+                                                        Avales de Presentación: {endorsementsCount}/3
+                                                    </span>
+                                                    <span className="rounded-full border border-gray-200 bg-gray-100 px-2.5 py-0.5 font-semibold text-gray-700">
+                                                        Aval de Publicación: {pubEndorsementsCount}/1
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Jurados asignados */}
+                                            {reviews.length > 0 ? (
+                                                <div className="grid gap-2 sm:grid-cols-3">
+                                                    {reviews.map((r) => (
+                                                        <div key={r.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+                                                            <span className="font-medium text-gray-800 truncate mr-2">
+                                                                {r.evaluator_name}
+                                                            </span>
+                                                            {r.is_approved !== null ? (
+                                                                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                                                    Evaluado
+                                                                </span>
+                                                            ) : (
+                                                                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                                                    Pendiente
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-400">Sin jurados asignados aún.</p>
+                                            )}
+
+                                            {/* Resumen desplegable de evaluaciones recibidas */}
+                                            {evaluatedReviews.length > 0 && (
+                                                <div className="mt-2.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleAdminReviews(art.id)}
+                                                        className="text-xs font-semibold text-brand-600 hover:text-brand-700 hover:underline"
+                                                    >
+                                                        {isExpanded
+                                                            ? `▲ Ocultar evaluaciones recibidas (${evaluatedReviews.length})`
+                                                            : `▼ Ver evaluaciones recibidas (${evaluatedReviews.length})`}
+                                                    </button>
+                                                    {isExpanded && (
+                                                        <div className="mt-2 flex flex-col gap-2">
+                                                            {evaluatedReviews.map((r) => {
+                                                                const avg = computeAverage(
+                                                                    r.originality_score,
+                                                                    r.relevance_score,
+                                                                    r.technical_quality_score
+                                                                );
+                                                                return (
+                                                                    <div key={r.id} className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 text-xs">
+                                                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                                                            <span className="font-semibold text-gray-800">
+                                                                                {r.evaluator_name}
+                                                                            </span>
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                {avg && (
+                                                                                    <span className="rounded bg-white border border-gray-200 px-2 py-0.5 font-semibold text-gray-700">
+                                                                                        Prom: {avg}/5
+                                                                                    </span>
+                                                                                )}
+                                                                                {r.is_approved === true ? (
+                                                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                                        ✓ Aceptado
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">
+                                                                                        ✕ Rechazado
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                        {r.originality_score && (
+                                                                            <p className="text-[11px] text-gray-500 mb-1">
+                                                                                Originalidad: <strong>{r.originality_score}</strong> · Pertinencia: <strong>{r.relevance_score}</strong> · Calidad Técnica: <strong>{r.technical_quality_score}</strong>
+                                                                            </p>
+                                                                        )}
+                                                                        {r.comments && (
+                                                                            <p className="italic text-gray-600">"{r.comments}"</p>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Retroalimentación del Comité Científico (solo vista Autor, anónima) */}
+                                    {!isAdmin && evaluatedReviews.length > 0 && (
+                                        <div className="mt-4 border-t pt-3">
+                                            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                                Retroalimentación del Comité Científico:
+                                            </h4>
+                                            <div className="flex flex-col gap-2">
+                                                {evaluatedReviews.map((r, idx) => {
+                                                    const avg = computeAverage(
+                                                        r.originality_score,
+                                                        r.relevance_score,
+                                                        r.technical_quality_score
+                                                    );
+                                                    return (
+                                                        <div key={r.id} className="rounded-xl bg-gray-50/80 p-3 border border-gray-100 text-xs">
+                                                            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                                                                <span className="font-semibold text-gray-800">
+                                                                    Evaluador {idx + 1}
+                                                                </span>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    {avg && (
+                                                                        <span className="rounded bg-white border border-gray-200 px-2 py-0.5 font-semibold text-gray-700">
+                                                                            Prom: {avg}/5
+                                                                        </span>
+                                                                    )}
+                                                                    {r.is_approved === true ? (
+                                                                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                            ✓ Aceptado
+                                                                        </span>
+                                                                    ) : r.is_approved === false ? (
+                                                                        <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">
+                                                                            ✕ Rechazado
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                            {r.originality_score && (
+                                                                <p className="text-[11px] text-gray-500 mb-1">
+                                                                    Originalidad: <strong>{r.originality_score}</strong> · Pertinencia: <strong>{r.relevance_score}</strong> · Calidad Técnica: <strong>{r.technical_quality_score}</strong>
+                                                                </p>
+                                                            )}
+                                                            {r.comments && (
+                                                                <p className="text-gray-600 italic">"{r.comments}"</p>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
                     )}
                 </div>
             ) : (
@@ -303,52 +595,134 @@ export default function Versions() {
                         </div>
                     ) : (
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                            {myReviews.map((rev) => (
-                                <div key={rev.id} className="flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
-                                    <div>
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-semibold text-gray-400">Revisión #{rev.id}</span>
-                                            {rev.is_approved !== null ? (
-                                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${rev.is_approved ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                    {rev.is_approved ? '✓ Aprobado' : '✕ Rechazado'}
+                            {myReviews.map((rev) => {
+                                const articleStatus = rev.article_status || 'EN_REVISION';
+                                const statusInfo = STATUS_BADGE_MAP[articleStatus] || {
+                                    label: articleStatus.replace(/_/g, ' '),
+                                    cls: 'bg-gray-100 text-gray-700 border-gray-200',
+                                };
+                                const phaseDeadline = getActivePhaseDeadline(articleStatus, deadlines);
+                                const msLeft = phaseDeadline?.date ? new Date(phaseDeadline.date) - new Date() : null;
+                                const isExpired = msLeft !== null && msLeft < 0;
+                                const isExpiringSoon = msLeft !== null && msLeft >= 0 && msLeft <= 3 * 24 * 60 * 60 * 1000;
+
+                                const hasCorrectedVersion = (rev.article_versions || []).some(
+                                    (v) => v.version_type === 'CORREGIDA'
+                                );
+                                const hasPresentationVote =
+                                    (rev.presentation_decision !== null && rev.presentation_decision !== undefined) ||
+                                    rev.presentation_endorsement;
+
+                                const needsInitialEval = rev.is_approved === null;
+                                const needsPresentationReview =
+                                    !needsInitialEval &&
+                                    ['ACEPTADO', 'CORRECCION_ENTREGADA'].includes(articleStatus) &&
+                                    hasCorrectedVersion &&
+                                    !hasPresentationVote;
+
+                                const actionButton = needsInitialEval
+                                    ? {
+                                          label: '📝 Realizar Evaluación',
+                                          cls: 'bg-brand-500 text-white hover:bg-brand-600 shadow-xs',
+                                      }
+                                    : needsPresentationReview
+                                    ? {
+                                          label: '📥 Revisar Versión Corregida',
+                                          cls: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs',
+                                      }
+                                    : {
+                                          label: '👁️ Ver Detalles y Evaluaciones',
+                                          cls: 'bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100',
+                                      };
+
+                                return (
+                                    <div key={rev.id} className="flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-5 shadow-xs">
+                                        <div>
+                                            {/* Línea temática y fecha límite */}
+                                            <div className="flex flex-wrap items-center justify-between gap-1.5">
+                                                {rev.article_thematic_line ? (
+                                                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                                                        {rev.article_thematic_line}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs font-semibold text-gray-400">Revisión #{rev.id}</span>
+                                                )}
+                                                {phaseDeadline?.date && (
+                                                    <span
+                                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                                                            isExpired
+                                                                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                                                : isExpiringSoon
+                                                                ? 'border-amber-300 bg-amber-50 text-amber-800 animate-pulse'
+                                                                : 'border-gray-200 bg-gray-50 text-gray-600'
+                                                        }`}
+                                                        title={`${phaseDeadline.label}: ${new Date(phaseDeadline.date).toLocaleString()}`}
+                                                    >
+                                                        {isExpired ? '⚠️ Vencida' : isExpiringSoon ? '⏳ Vence pronto: ' : '📅 '}
+                                                        {!isExpired && new Date(phaseDeadline.date).toLocaleDateString()}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <h3 className="mt-2.5 text-base font-bold text-gray-800 line-clamp-2">
+                                                {rev.article_title}
+                                            </h3>
+
+                                            {/* Estado global del artículo */}
+                                            <div className="mt-2.5 flex items-center gap-2">
+                                                <span className="text-[11px] font-medium text-gray-500">Estado del artículo:</span>
+                                                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusInfo.cls}`}>
+                                                    {statusInfo.label}
                                                 </span>
-                                            ) : (
-                                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                                                    Pendiente
-                                                </span>
-                                            )}
+                                            </div>
+
+                                            {/* Acciones del jurado separadas */}
+                                            <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3 flex flex-col gap-1.5 text-xs">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-600">Evaluación inicial:</span>
+                                                    {rev.is_approved === true ? (
+                                                        <span className="font-semibold text-emerald-700">✓ Aprobado</span>
+                                                    ) : rev.is_approved === false ? (
+                                                        <span className="font-semibold text-rose-700">✕ Rechazado</span>
+                                                    ) : (
+                                                        <span className="font-semibold text-amber-700">Pendiente</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-600">Aval Presentación:</span>
+                                                    {rev.presentation_decision === false ? (
+                                                        <span className="font-semibold text-rose-700">No avalado</span>
+                                                    ) : hasPresentationVote ? (
+                                                        <span className="font-semibold text-emerald-700">✓ Emitido</span>
+                                                    ) : (
+                                                        <span className="text-gray-400 font-medium">Pendiente</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-600">Aval Publicación:</span>
+                                                    {rev.publication_endorsement ? (
+                                                        <span className="font-semibold text-emerald-700">✓ Emitido</span>
+                                                    ) : (
+                                                        <span className="rounded bg-gray-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+                                                            Post-evento
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <h3 className="mt-2 text-base font-bold text-gray-800 line-clamp-2">
-                                            {rev.article_title}
-                                        </h3>
-                                        
-                                        {/* Estado de avales */}
-                                        <div className="mt-3 flex flex-col gap-1 text-xs text-gray-500">
-                                            <p>
-                                                Aval Presentación:{' '}
-                                                <span className={rev.presentation_endorsement ? 'text-green-600 font-semibold' : 'text-gray-400'}>
-                                                    {rev.presentation_endorsement ? 'Emitido' : 'Pendiente'}
-                                                </span>
-                                            </p>
-                                            <p>
-                                                Aval Publicación:{' '}
-                                                <span className={rev.publication_endorsement ? 'text-green-600 font-semibold' : 'text-gray-400'}>
-                                                    {rev.publication_endorsement ? 'Emitido' : 'Pendiente'}
-                                                </span>
-                                            </p>
-                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                setSelectedReview(rev);
+                                                setIsReviewOpen(true);
+                                            }}
+                                            className={`mt-4 w-full rounded-lg py-2 text-xs font-semibold transition ${actionButton.cls}`}
+                                        >
+                                            {actionButton.label}
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => {
-                                            setSelectedReview(rev);
-                                            setIsReviewOpen(true);
-                                        }}
-                                        className="mt-4 w-full rounded-lg bg-brand-50 py-2 text-xs font-semibold text-brand-600 hover:bg-brand-100 transition"
-                                    >
-                                        📝 Evaluar / Gestionar Avales
-                                    </button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -360,8 +734,10 @@ export default function Versions() {
                 onClose={() => {
                     setIsUploadOpen(false);
                     setSelectedArticleForUpload(null);
+                    setUploadFixedType(null);
                 }}
                 article={selectedArticleForUpload}
+                fixedVersionType={uploadFixedType}
                 onSuccess={fetchData}
             />
             
@@ -375,6 +751,17 @@ export default function Versions() {
                 review={selectedReview}
                 deadlines={deadlines}
                 onSuccess={fetchData}
+            />
+
+            {/* Modal de asignación / consulta de jurados (Admin) */}
+            <AssignEvaluatorsModal
+                isOpen={isAssignOpen}
+                onClose={() => {
+                    setIsAssignOpen(false);
+                    setSelectedArticleForAssign(null);
+                }}
+                article={selectedArticleForAssign}
+                onAssigned={fetchData}
             />
         </div>
     );

@@ -34,80 +34,139 @@ def can_submit_final_version():
         return True
     return timezone.now() <= deadline.final_deadline
 
+def _get_article_conflict_emails(article):
+    return {
+        email.strip().lower()
+        for email in article.coauthors.values_list('email', flat=True)
+        if email
+    }
+
+
 def assign_evaluators_to_article(article, evaluator_ids=None):
     """
-    Asigna jurados (miembros del comité científico) a un artículo:
-    - Si `evaluator_ids` es None: selecciona 3 evaluadores al azar.
-    - Si `evaluator_ids` se envía: valida y asigna entre 1 y 3 jurados seleccionados manualmente
-      (incluyendo autoasignación del miembro del comité, salvo si es el autor del artículo).
+    Asigna jurados (miembros del comité científico) a un artículo respetando:
+    1. Exactamente 3 jurados (o limpiar pendientes).
+    2. Máximo 3 artículos asignados por jurado.
+    3. Sin conflicto de interés (no autor ni coautor del artículo).
+    4. Preservación de jurados que ya enviaron su evaluación en reasignaciones.
     """
+    evaluated_ids = set(
+        article.reviews.filter(is_approved__isnull=False).values_list('evaluator_id', flat=True)
+    )
+    existing_ids = set(article.reviews.values_list('evaluator_id', flat=True))
+    coauthor_emails = _get_article_conflict_emails(article)
+
     if evaluator_ids is None:
-        if article.reviews.count() >= 3:
+        if len(existing_ids) >= 3:
             return False, "El artículo ya tiene 3 evaluadores asignados."
-        # Obtener miembros del comité científico activos excluyendo al autor
-        committee_members = list(
+        slots_needed = 3 - len(existing_ids)
+        eligible_qs = (
             User.objects.filter(
                 roles__name__in=COMMITTEE_ROLE_NAMES,
-                is_active=True
-            ).exclude(id=article.author_id).distinct()
+                is_active=True,
+            )
+            .exclude(id=article.author_id)
+            .exclude(id__in=existing_ids)
+            .annotate(
+                thematic_reviews_count=Count(
+                    'article_reviews',
+                    filter=Q(article_reviews__article__thematic_line=article.thematic_line),
+                    distinct=True,
+                ),
+                total_assigned_count=Count('article_reviews', distinct=True),
+            )
+            .distinct()
         )
-        if len(committee_members) < 3:
-            return False, f"Se requieren al menos 3 miembros del comité científico registrados (hay {len(committee_members)} disponibles)."
-        selected_evaluators = random.sample(committee_members, 3)
+        eligible_members = [
+            m for m in eligible_qs
+            if (m.email or '').strip().lower() not in coauthor_emails and m.total_assigned_count < 3
+        ]
+        if len(eligible_members) < slots_needed:
+            return (
+                False,
+                f"No hay suficientes jurados elegibles sin conflicto de interés y con cupo disponible (< 3 asignados). Disponibles: {len(eligible_members)}.",
+            )
+        # Priorizar afinidad temática y luego selección aleatoria dentro del nivel de afinidad
+        thematic_matches = [m for m in eligible_members if m.thematic_reviews_count > 0]
+        other_eligible = [m for m in eligible_members if m.thematic_reviews_count == 0]
+        if len(thematic_matches) >= slots_needed:
+            selected_new = random.sample(thematic_matches, slots_needed)
+        else:
+            remaining = slots_needed - len(thematic_matches)
+            selected_new = thematic_matches + random.sample(other_eligible, remaining)
+        target_ids = list(existing_ids) + [m.id for m in selected_new]
     else:
-        if article.reviews.filter(is_approved__isnull=False).exists():
-            return False, "No se pueden reasignar jurados porque el artículo ya tiene evaluaciones registradas."
         try:
             unique_ids = list(dict.fromkeys(int(eid) for eid in evaluator_ids))
         except (TypeError, ValueError):
             return False, "Los identificadores de evaluadores no son válidos."
-        if len(unique_ids) > 3:
-            return False, "Puedes seleccionar máximo 3 jurados del comité científico."
+
+        if not evaluated_ids.issubset(set(unique_ids)):
+            return False, "No puedes quitar jurados que ya enviaron su evaluación."
+
+        is_clearing_pending = set(unique_ids) == evaluated_ids
+        if not is_clearing_pending and len(unique_ids) != 3:
+            return False, "Debes seleccionar exactamente 3 jurados o limpiar los jurados pendientes."
+
         if article.author_id in unique_ids:
-            return False, "El autor del artículo no puede ser asignado como su propio evaluador."
+            return False, "Conflicto de interés: el autor del artículo no puede ser asignado como jurado."
 
-        if len(unique_ids) == 0:
-            with transaction.atomic():
-                article.reviews.all().delete()
-                if article.status == ArticleStatus.EN_REVISION:
-                    article.status = ArticleStatus.POSTULADO
-                    article.save(update_fields=['status'])
-            return True, f"Se eliminaron los evaluadores asignados al artículo '{article.title}'."
-
-        selected_evaluators = list(
+        new_ids = [uid for uid in unique_ids if uid not in existing_ids]
+        selected_users = list(
             User.objects.filter(
                 id__in=unique_ids,
                 roles__name__in=COMMITTEE_ROLE_NAMES,
                 is_active=True,
-            ).distinct()
+            )
+            .annotate(total_assigned_count=Count('article_reviews', distinct=True))
+            .distinct()
         )
-        if len(selected_evaluators) != len(unique_ids):
+        if len(selected_users) != len(unique_ids):
             return False, "Todos los jurados seleccionados deben ser miembros activos del comité científico."
 
+        for member in selected_users:
+            if (member.email or '').strip().lower() in coauthor_emails:
+                return False, f"Conflicto de interés: {member.get_full_name() or member.username} es coautor del artículo."
+            if member.id in new_ids and member.total_assigned_count >= 3:
+                return False, f"Cupo lleno: {member.get_full_name() or member.username} ya tiene 3 artículos asignados."
+
+        target_ids = unique_ids
+
     with transaction.atomic():
-        article.reviews.all().delete()
-        for member in selected_evaluators:
-            ArticleReview.objects.create(
-                article=article,
-                evaluator=member
-            )
-        article.status = ArticleStatus.EN_REVISION
-        article.save(update_fields=['status'])
-    return True, f"Se asignaron {len(selected_evaluators)} evaluador(es) exitosamente al artículo '{article.title}'."
+        article.reviews.filter(is_approved__isnull=True).exclude(evaluator_id__in=target_ids).delete()
+        for uid in target_ids:
+            if uid not in existing_ids:
+                ArticleReview.objects.create(article=article, evaluator_id=uid)
+
+        if len(target_ids) == 0:
+            if article.status == ArticleStatus.EN_REVISION:
+                article.status = ArticleStatus.POSTULADO
+                article.save(update_fields=['status'])
+        elif article.status == ArticleStatus.POSTULADO:
+            article.status = ArticleStatus.EN_REVISION
+            article.save(update_fields=['status'])
+
+    if len(target_ids) == len(evaluated_ids) and len(target_ids) < 3:
+        return True, f"Se limpiaron los jurados pendientes del artículo '{article.title}'."
+    return True, f"Se asignaron {len(target_ids)} jurado(s) exitosamente al artículo '{article.title}'."
 
 
 def suggest_evaluators_for_article(article, current_user=None):
     """
-    Retorna los miembros activos del comité científico elegibles para evaluar el artículo,
-    ordenados por afinidad con la línea temática del artículo y carga actual de revisiones,
-    junto con una sugerencia automática de hasta 3 jurados.
+    Retorna los miembros activos del comité científico con su carga actual (X / 3),
+    afinidad temática, conflicto de interés (autor/coautor) y estado de evaluación.
     """
+    coauthor_emails = _get_article_conflict_emails(article)
+    assigned_ids = list(article.reviews.values_list('evaluator_id', flat=True))
+    evaluated_ids = list(
+        article.reviews.filter(is_approved__isnull=False).values_list('evaluator_id', flat=True)
+    )
+
     candidates_qs = (
         User.objects.filter(
             roles__name__in=COMMITTEE_ROLE_NAMES,
             is_active=True,
         )
-        .exclude(id=article.author_id)
         .annotate(
             thematic_reviews_count=Count(
                 'article_reviews',
@@ -121,6 +180,11 @@ def suggest_evaluators_for_article(article, current_user=None):
 
     candidates = []
     for member in candidates_qs:
+        is_assigned = member.id in assigned_ids
+        has_conflict = (member.id == article.author_id) or (
+            (member.email or '').strip().lower() in coauthor_emails
+        )
+        is_full = (member.total_assigned_count >= 3) and not is_assigned
         candidates.append({
             'id': member.id,
             'username': member.username,
@@ -129,18 +193,35 @@ def suggest_evaluators_for_article(article, current_user=None):
             'thematic_reviews_count': member.thematic_reviews_count,
             'total_assigned_count': member.total_assigned_count,
             'is_current_user': bool(current_user and member.id == current_user.id),
+            'has_conflict': has_conflict,
+            'is_full': is_full,
+            'has_evaluated': member.id in evaluated_ids,
         })
 
-    # Priorizar afinidad temática (desc) y luego menor carga de trabajo (asc)
-    candidates.sort(key=lambda c: (-c['thematic_reviews_count'], c['total_assigned_count'], c['full_name'].lower()))
+    # Priorizar elegibles (sin conflicto ni cupo lleno), luego afinidad temática y menor carga
+    candidates.sort(
+        key=lambda c: (
+            c['has_conflict'] or c['is_full'],
+            -c['thematic_reviews_count'],
+            c['total_assigned_count'],
+            c['full_name'].lower(),
+        )
+    )
 
-    suggested_ids = [c['id'] for c in candidates[:3]]
-    assigned_ids = list(article.reviews.values_list('evaluator_id', flat=True))
+    eligible_new_ids = [
+        c['id'] for c in candidates
+        if not c['has_conflict'] and not c['is_full'] and c['id'] not in evaluated_ids
+    ]
+    slots_needed = max(0, 3 - len(evaluated_ids))
+    suggested_ids = evaluated_ids + eligible_new_ids[:slots_needed]
+    if len(suggested_ids) < 3:
+        suggested_ids = []
 
     return {
         'thematic_line': article.thematic_line,
         'suggested_ids': suggested_ids,
         'assigned_ids': assigned_ids,
+        'evaluated_ids': evaluated_ids,
         'candidates': candidates,
     }
 
