@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { uploadArticleVersion } from '../../api/articleApi';
 
@@ -8,11 +8,19 @@ const VERSION_OPTIONS = [
     { value: 'FINAL', label: 'Versión final para publicación (PDF + Copyright)' },
 ];
 
-export default function UploadVersionModal({ isOpen, onClose, article, onSuccess }) {
-    const [versionType, setVersionType] = useState('INICIAL');
+export default function UploadVersionModal({ isOpen, onClose, article, onSuccess, fixedVersionType = null }) {
+    const [versionType, setVersionType] = useState(fixedVersionType || 'INICIAL');
     const [file, setFile] = useState(null);
     const [copyrightFile, setCopyrightFile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setVersionType(fixedVersionType || 'INICIAL');
+            setFile(null);
+            setCopyrightFile(null);
+        }
+    }, [isOpen, fixedVersionType]);
 
     if (!isOpen || !article) return null;
 
@@ -58,7 +66,13 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
                 {/* Cabecera */}
                 <div className="mb-4 flex items-start justify-between border-b pb-3">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800">Subir Versión de Artículo</h3>
+                        <h3 className="text-lg font-bold text-gray-800">
+                            {fixedVersionType === 'CORREGIDA'
+                                ? 'Subir Versión Corregida (PDF)'
+                                : fixedVersionType === 'INICIAL'
+                                ? 'Reemplazar PDF Inicial'
+                                : 'Subir Versión de Artículo'}
+                        </h3>
                         <p className="text-xs text-gray-500 mt-0.5">Artículo: <span className="font-medium text-gray-700">{article.title}</span></p>
                     </div>
                     <button
@@ -80,19 +94,29 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
                         </span>
                     </div>
                     
-                    {/* Selector de versión */}
-                    <div>
-                        <label className="mb-1 block font-medium text-gray-700">Tipo de versión</label>
-                        <select
-                            value={versionType}
-                            onChange={(e) => setVersionType(e.target.value)}
-                            className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
-                        >
-                            {VERSION_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
+                    {/* Selector de versión (oculto si fixedVersionType está definido) */}
+                    {fixedVersionType ? (
+                        <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs text-blue-800">
+                            {fixedVersionType === 'CORREGIDA' ? (
+                                <>Se registrará como <strong>Versión corregida para presentación (PDF)</strong> conservando la propuesta inicial en el historial.</>
+                            ) : (
+                                <>Se cargará como <strong>Propuesta inicial (PDF)</strong> dentro del plazo de postulación.</>
+                            )}
+                        </div>
+                    ) : (
+                        <div>
+                            <label className="mb-1 block font-medium text-gray-700">Tipo de versión</label>
+                            <select
+                                value={versionType}
+                                onChange={(e) => setVersionType(e.target.value)}
+                                className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                            >
+                                {VERSION_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     
                     {/* Archivo PDF del artículo */}
                     <div>

@@ -64,8 +64,8 @@ export default function useAuth() {
     // Administrador y Comité pueden cambiar roles (con jerarquía en backend/UI)
     const canChangeRoles = isAdmin || isCommittee;
 
-    // Solo Autores y Administradores pueden proponer o crear artículos
-    const canCreateArticle = isAuthor || isAdmin;
+    // Solo Autores pueden proponer o crear artículos
+    const canCreateArticle = isAuthor;
 
     // Solo Miembros del Comité Científico y Administradores pueden deshabilitar artículos
     const canDisableArticle = isCommittee || isAdmin;

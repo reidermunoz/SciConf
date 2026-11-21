@@ -6,10 +6,31 @@ import ArticleModal from '../../components/articles/ArticleModal';
 import ArticleDetailModal from '../../components/articles/ArticleDetailModal';
 import DisableArticleModal from '../../components/articles/DisableArticleModal';
 import AssignEvaluatorsModal from '../../components/articles/AssignEvaluatorsModal';
+import ReviewModal from '../../components/articles/ReviewModal';
+import UploadVersionModal from '../../components/articles/UploadVersionModal';
+
+const ARTICLE_STATUS_OPTIONS = [
+    { value: 'POSTULADO', label: 'POSTULADO', cls: 'bg-gray-100 text-gray-700 border-gray-200' },
+    { value: 'EN_REVISION', label: 'EN REVISIÓN', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    { value: 'ACEPTADO', label: 'ACEPTADO', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    { value: 'RECHAZADO', label: 'RECHAZADO', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    { value: 'CON_AVAL_PRESENTACION', label: 'CON AVAL PARA PRESENTACIÓN', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+    { value: 'CON_AVAL_PUBLICACION', label: 'CON AVAL PARA PUBLICACIÓN', cls: 'bg-teal-50 text-teal-700 border-teal-200' },
+];
+
+const EXTRA_STATUS_BADGES = {
+    CORRECCION_ENTREGADA: { label: 'CORRECCIÓN ENTREGADA', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    FINAL_ENTREGADO: { label: 'VERSIÓN FINAL ENTREGADA', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+};
+
+const getStatusBadge = (status) => {
+    const found = ARTICLE_STATUS_OPTIONS.find((opt) => opt.value === status) || EXTRA_STATUS_BADGES[status];
+    return found || { label: status || 'POSTULADO', cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+};
 
 export default function Articles() {
 
-    const { user: currentUser, isAdmin, isCommittee, canCreateArticle, canDisableArticle } = useAuth();
+    const { user: currentUser, isAdmin, isCommittee, isAuthor, canCreateArticle } = useAuth();
 
     // Estados de datos
     const [articles, setArticles] = useState([]);
@@ -31,6 +52,10 @@ export default function Articles() {
     const [selectedArticleToDisable, setSelectedArticleToDisable] = useState(null);
     const [isAssignOpen, setIsAssignOpen] = useState(false);
     const [selectedArticleToAssign, setSelectedArticleToAssign] = useState(null);
+    const [isReviewOpen, setIsReviewOpen] = useState(false);
+    const [selectedReview, setSelectedReview] = useState(null);
+    const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [selectedArticleForUpload, setSelectedArticleForUpload] = useState(null);
     
     // Debounce solo al escribir en búsqueda; la carga inicial y los selectores son inmediatos
     useEffect(() => {
@@ -50,12 +75,13 @@ export default function Articles() {
         try {
             const params = {};
             if (thematicFilter) params.thematic_line = thematicFilter;
-            if (statusFilter !== '') params.is_active = statusFilter;
+            if (statusFilter !== '') params.status = statusFilter;
             if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
             const res = await getArticles(params);
+            const activeArticles = res.data.filter((a) => a.is_active !== false);
             const visibleArticles = (isAdmin || isCommittee)
-                ? res.data
-                : res.data.filter((a) => a.author === currentUser?.id);
+                ? activeArticles
+                : activeArticles.filter((a) => a.author === currentUser?.id);
             setArticles(visibleArticles);
             if (isManual) {
                 toast.success('Lista de artículos actualizada');
@@ -114,11 +140,23 @@ export default function Articles() {
     const isSubmissionOpen =
         !deadlines?.submissions_deadline ||
         new Date() <= new Date(deadlines.submissions_deadline);
+    const isCorrectionOpen =
+        !deadlines?.corrections_deadline ||
+        new Date() <= new Date(deadlines.corrections_deadline);
 
-    // Determina si el usuario logueado puede editar este artículo en específico
+    // Determina si el usuario logueado puede editar este artículo en específico (solo su propio autor antes del plazo)
     const canUserEdit = (article) => {
-        if (isAdmin) return true;
-        return article.author === currentUser?.id && isSubmissionOpen;
+        return isAuthor && article.author === currentUser?.id && isSubmissionOpen;
+    };
+
+    const handleOpenReview = (review) => {
+        setSelectedReview(review);
+        setIsReviewOpen(true);
+    };
+
+    const handleOpenUpload = (article) => {
+        setSelectedArticleForUpload(article);
+        setIsUploadOpen(true);
     };
     return (
         <div className="flex flex-col gap-6">
@@ -158,7 +196,9 @@ export default function Articles() {
                     {canCreateArticle && (
                         <button
                             onClick={handleOpenCreate}
-                            className="rounded-lg bg-brand-500 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-brand-600 transition shadow-sm"
+                            disabled={!isSubmissionOpen}
+                            title={!isSubmissionOpen ? 'El plazo de postulaciones ha finalizado' : 'Proponer nuevo artículo'}
+                            className="rounded-lg bg-brand-500 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-brand-600 transition shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             + Proponer artículo
                         </button>
@@ -199,7 +239,7 @@ export default function Articles() {
                         </select>
                     </div>
 
-                    {/* Filtro 2: Estado de Habilitación */}
+                    {/* Filtro 2: Estado real del artículo */}
                     <div>
                         <label className="mb-1 block text-xs font-semibold text-gray-600">Estado en conferencia</label>
                         <select
@@ -208,8 +248,11 @@ export default function Articles() {
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                         >
                             <option value="">Todos los estados</option>
-                            <option value="true">Habilitados</option>
-                            <option value="false">Deshabilitados</option>
+                            {ARTICLE_STATUS_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
+                            ))}
                         </select>
                     </div>
 
@@ -280,75 +323,103 @@ export default function Articles() {
                                             <p className="text-xs text-gray-400">{article.author_email}</p>
                                         </td>
                                         
-                                        {/* Estado */}
+                                        {/* Estado real del ciclo de revisión */}
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            {article.is_active ? (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 border border-green-200">
-                                                    <span className="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-                                                    Habilitado
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 border border-red-200">
-                                                    <span className="h-1.5 w-1.5 rounded-full bg-red-500"></span>
-                                                    Deshabilitado
-                                                </span>
-                                            )}
+                                            {(() => {
+                                                const badge = getStatusBadge(article.status);
+                                                return (
+                                                    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${badge.cls}`}>
+                                                        {badge.label}
+                                                    </span>
+                                                );
+                                            })()}
                                         </td>
                                         
                                         {/* Acciones */}
                                         <td className="px-6 py-4 text-right whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-2">
-                                                
-                                                {/* Ver Detalle */}
-                                                <button
-                                                    onClick={() => handleOpenDetail(article)}
-                                                    className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition"
-                                                    title="Ver información detallada"
-                                                >
-                                                    👁️ Ver
-                                                </button>
-                                                
-                                                {/* Modificar (Solo autor del artículo o admin) */}
-                                                {canUserEdit(article) && (
-                                                    <button
-                                                        onClick={() => handleOpenEdit(article)}
-                                                        className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 transition"
-                                                        title="Modificar artículo"
-                                                    >
-                                                        ✏️ Editar
-                                                    </button>
-                                                )}
-                                                
-                                                {/* Asignar jurados (Solo Comité o Admin, artículos activos) */}
-                                                {canDisableArticle && article.is_active && (
-                                                    <button
-                                                        onClick={() => handleOpenAssign(article)}
-                                                        className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 transition text-xs font-medium"
-                                                        title="Asignar jurados (manual o sugerido por temática)"
-                                                    >
-                                                        👥 Jurados
-                                                    </button>
-                                                )}
+                                            {(() => {
+                                                const assignedReview = article.reviews?.find((r) => r.evaluator === currentUser?.id);
+                                                const reviewersCount = article.reviews?.length || 0;
+                                                const canUploadCorrection =
+                                                    isAuthor &&
+                                                    article.author === currentUser?.id &&
+                                                    article.status === 'ACEPTADO' &&
+                                                    isCorrectionOpen;
+                                                return (
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {/* Ver Detalle (todos los roles) */}
+                                                        <button
+                                                            onClick={() => handleOpenDetail(article)}
+                                                            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition"
+                                                            title="Ver información detallada"
+                                                        >
+                                                            👁️ Ver
+                                                        </button>
 
-                                                {/* Deshabilitar / Reactivar (Solo Comité o Admin) */}
-                                                {canDisableArticle && (
-                                                    <button
-                                                        onClick={() => handleOpenDisable(article)}
-                                                        className={`rounded-lg p-1.5 transition text-xs font-medium ${
-                                                            article.is_active
-                                                                ? 'text-red-600 hover:bg-red-50'
-                                                                : 'text-green-600 hover:bg-green-50'
-                                                        }`}
-                                                        title={
-                                                            article.is_active
-                                                                ? 'Deshabilitar de la conferencia'
-                                                                : 'Habilitar para la conferencia'
-                                                        }
-                                                    >
-                                                        {article.is_active ? '🚫 Deshabilitar' : '🔄 Habilitar'}
-                                                    </button>
-                                                )}
-                                            </div>
+                                                        {/* Autor: Editar (oculto cuando vence la fecha límite de postulaciones) */}
+                                                        {canUserEdit(article) && (
+                                                            <button
+                                                                onClick={() => handleOpenEdit(article)}
+                                                                className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 transition"
+                                                                title="Modificar artículo"
+                                                            >
+                                                                ✏️ Editar
+                                                            </button>
+                                                        )}
+
+                                                        {/* Autor: Subir versión (cuando está ACEPTADO dentro del plazo) */}
+                                                        {isAuthor && article.author === currentUser?.id && (
+                                                            <button
+                                                                onClick={() => handleOpenUpload(article)}
+                                                                disabled={!canUploadCorrection}
+                                                                className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 transition text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                                                                title={
+                                                                    article.status !== 'ACEPTADO'
+                                                                        ? 'Disponible cuando el artículo sea ACEPTADO'
+                                                                        : !isCorrectionOpen
+                                                                        ? 'El plazo de entrega de correcciones ha finalizado'
+                                                                        : 'Subir versión corregida (PDF)'
+                                                                }
+                                                            >
+                                                                📤 Subir versión
+                                                            </button>
+                                                        )}
+
+                                                        {/* Comité: Evaluar (solo si está asignado como jurado) */}
+                                                        {isCommittee && assignedReview && (
+                                                            <button
+                                                                onClick={() => handleOpenReview(assignedReview)}
+                                                                className="rounded-lg bg-brand-50 border border-brand-200 px-2.5 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
+                                                                title="Evaluar artículo y emitir avales"
+                                                            >
+                                                                📝 Evaluar
+                                                            </button>
+                                                        )}
+
+                                                        {/* Comité y Admin: Asignar jurados con conteo */}
+                                                        {(isCommittee || isAdmin) && (
+                                                            <button
+                                                                onClick={() => handleOpenAssign(article)}
+                                                                className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 transition text-xs font-medium"
+                                                                title="Asignar jurados (manual o sugerido por temática)"
+                                                            >
+                                                                👥 Jurados ({reviewersCount}/3)
+                                                            </button>
+                                                        )}
+
+                                                        {/* Comité: Deshabilitar (exclusivo del Comité Científico) */}
+                                                        {isCommittee && (
+                                                            <button
+                                                                onClick={() => handleOpenDisable(article)}
+                                                                className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 transition text-xs font-medium"
+                                                                title="Deshabilitar artículo de la conferencia"
+                                                            >
+                                                                🚫 Deshabilitar
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                     </tr>
                                 ))
@@ -381,6 +452,26 @@ export default function Articles() {
                 onClose={() => setIsAssignOpen(false)}
                 onAssigned={fetchArticles}
                 article={selectedArticleToAssign}
+            />
+            <ReviewModal
+                isOpen={isReviewOpen}
+                onClose={() => {
+                    setIsReviewOpen(false);
+                    setSelectedReview(null);
+                }}
+                review={selectedReview}
+                deadlines={deadlines}
+                onSuccess={fetchArticles}
+            />
+            <UploadVersionModal
+                isOpen={isUploadOpen}
+                onClose={() => {
+                    setIsUploadOpen(false);
+                    setSelectedArticleForUpload(null);
+                }}
+                article={selectedArticleForUpload}
+                fixedVersionType="CORREGIDA"
+                onSuccess={fetchArticles}
             />
         </div>
     );

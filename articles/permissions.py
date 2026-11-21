@@ -10,7 +10,7 @@ class IsArticleAuthorOrReadOnly(permissions.BasePermission):
     """
     - Lectura (GET, HEAD, OPTIONS): Permitida para cualquier usuario autenticado.
     - Creación (POST): Permitida solo para 'Autor' o 'Administrador del Sistema'.
-    - Modificación (PUT, PATCH, DELETE): Solo para el autor propietario del artículo (o Admin).
+    - Modificación (PUT, PATCH, DELETE): Exclusivamente para el autor propietario del artículo.
     """
 
     def has_permission(self, request, view):
@@ -33,11 +33,7 @@ class IsArticleAuthorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # El Administrador tiene acceso total
-        if has_role(request.user, ROLE_ADMIN):
-            return True
-        
-        # El autor solo puede modificar su propio artículo
+        # Solo el autor propietario puede modificar su propio artículo
         return obj.author == request.user
 
     

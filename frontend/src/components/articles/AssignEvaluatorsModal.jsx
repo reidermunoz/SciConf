@@ -9,6 +9,7 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
     const [saving, setSaving] = useState(false);
     const [candidates, setCandidates] = useState([]);
     const [suggestedIds, setSuggestedIds] = useState([]);
+    const [evaluatedIds, setEvaluatedIds] = useState([]);
     const [selectedIds, setSelectedIds] = useState([]);
 
     useEffect(() => {
@@ -20,6 +21,7 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                 if (!active) return;
                 setCandidates(res.data.candidates || []);
                 setSuggestedIds(res.data.suggested_ids || []);
+                setEvaluatedIds(res.data.evaluated_ids || []);
                 setSelectedIds(res.data.assigned_ids || []);
             })
             .catch(() => {
@@ -37,36 +39,49 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
 
     if (!isOpen || !article) return null;
 
-    const toggleCandidate = (id) => {
-        setSelectedIds((prev) => {
-            if (prev.includes(id)) {
-                return prev.filter((item) => item !== id);
+    const toggleCandidate = (candidate) => {
+        if (evaluatedIds.includes(candidate.id)) {
+            return;
+        }
+        const isChecked = selectedIds.includes(candidate.id);
+        if (!isChecked) {
+            if (candidate.has_conflict) {
+                toast.error('Conflicto de interés: es autor o coautor del artículo.');
+                return;
             }
-            if (prev.length >= 3) {
+            if (candidate.is_full) {
+                toast.error('Este miembro ya alcanzó el cupo máximo de 3 artículos asignados.');
+                return;
+            }
+            if (selectedIds.length >= 3) {
                 toast.error('Puedes asignar máximo 3 jurados por artículo.');
-                return prev;
+                return;
             }
-            return [...prev, id];
-        });
+            setSelectedIds((prev) => [...prev, candidate.id]);
+        } else {
+            setSelectedIds((prev) => prev.filter((item) => item !== candidate.id));
+        }
     };
 
     const handleApplySuggested = () => {
-        if (suggestedIds.length === 0) {
-            toast.error('No hay suficientes jurados disponibles para sugerir.');
+        if (suggestedIds.length < 3) {
+            toast.error('No hay suficientes jurados elegibles (sin conflicto y con cupo < 3) para sugerir 3.');
             return;
         }
         setSelectedIds(suggestedIds);
         toast.success('Sugerencia por línea temática aplicada');
     };
 
-    const canSelfAssign =
-        currentUser?.id &&
-        currentUser.id !== article.author &&
-        candidates.some((c) => c.id === currentUser.id);
+    const currentCandidate = candidates.find((c) => c.id === currentUser?.id);
+    const isSelfDisabled =
+        !currentCandidate ||
+        currentCandidate.has_conflict ||
+        (currentCandidate.is_full && !selectedIds.includes(currentCandidate.id)) ||
+        evaluatedIds.includes(currentCandidate.id);
 
     const handleSelfAssign = () => {
-        if (!canSelfAssign) return;
-        toggleCandidate(currentUser.id);
+        if (!currentCandidate || isSelfDisabled) return;
+        toggleCandidate(currentCandidate);
     };
 
     const handleRandomAssign = async () => {
@@ -83,12 +98,22 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
         }
     };
 
-    const handleClearAll = () => {
-        setSelectedIds([]);
+    const handleClearPending = () => {
+        setSelectedIds(evaluatedIds);
     };
+
+    const hasPendingSelected = selectedIds.some((id) => !evaluatedIds.includes(id));
+    const isClearingOnly =
+        selectedIds.length === evaluatedIds.length &&
+        evaluatedIds.every((id) => selectedIds.includes(id));
+    const canSave = selectedIds.length === 3 || isClearingOnly;
 
     const handleSaveManual = async (e) => {
         e.preventDefault();
+        if (!canSave) {
+            toast.error('Debes seleccionar exactamente 3 jurados o limpiar los pendientes.');
+            return;
+        }
         setSaving(true);
         try {
             const res = await assignEvaluators(article.id, selectedIds);
@@ -122,7 +147,7 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                     </button>
                 </div>
 
-                {/* Acciones rápidas: Sugerencia por temática, Autoasignarme, Aleatoria */}
+                {/* Acciones rápidas: Sugerencia por temática, Autoasignarme, Aleatoria, Quitar todos */}
                 <div className="mb-4 flex flex-wrap gap-2">
                     <button
                         type="button"
@@ -132,12 +157,21 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                     >
                         ✨ Sugerir por temática
                     </button>
-                    {canSelfAssign && (
+                    {currentCandidate && (
                         <button
                             type="button"
                             onClick={handleSelfAssign}
-                            disabled={loading || saving}
-                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
+                            disabled={loading || saving || isSelfDisabled}
+                            title={
+                                currentCandidate.has_conflict
+                                    ? 'Conflicto de interés: eres autor o coautor del artículo'
+                                    : currentCandidate.is_full
+                                    ? 'Ya tienes 3 artículos asignados'
+                                    : evaluatedIds.includes(currentCandidate.id)
+                                    ? 'Ya enviaste tu evaluación'
+                                    : ''
+                            }
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                                 selectedIds.includes(currentUser.id)
                                     ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
                                     : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
@@ -154,10 +188,10 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                     >
                         🎲 Asignación aleatoria
                     </button>
-                    {selectedIds.length > 0 && (
+                    {hasPendingSelected && (
                         <button
                             type="button"
-                            onClick={handleClearAll}
+                            onClick={handleClearPending}
                             disabled={loading || saving}
                             className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition disabled:opacity-50"
                         >
@@ -171,38 +205,62 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                         <p className="py-8 text-center text-sm text-gray-500">Cargando miembros del comité...</p>
                     ) : candidates.length === 0 ? (
                         <p className="py-8 text-center text-sm text-gray-500">
-                            No hay miembros del comité científico disponibles para asignar a este artículo.
+                            No hay miembros del comité científico disponibles.
                         </p>
                     ) : (
                         <div className="max-h-72 overflow-y-auto flex flex-col gap-2 pr-1">
                             {candidates.map((c) => {
                                 const checked = selectedIds.includes(c.id);
                                 const isSuggested = suggestedIds.includes(c.id);
+                                const hasEvaluated = evaluatedIds.includes(c.id);
+                                const limitReached = !checked && selectedIds.length >= 3;
+                                const isDisabled =
+                                    hasEvaluated ||
+                                    (!checked && (c.has_conflict || c.is_full || limitReached));
+
                                 return (
                                     <label
                                         key={c.id}
-                                        className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 transition ${
+                                        className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition ${
                                             checked
                                                 ? 'border-brand-500 bg-brand-50/60'
-                                                : 'border-gray-200 bg-white hover:bg-gray-50'
+                                                : isDisabled
+                                                ? 'border-gray-200 bg-gray-50/80 opacity-65 cursor-not-allowed'
+                                                : 'border-gray-200 bg-white hover:bg-gray-50 cursor-pointer'
                                         }`}
                                     >
                                         <div className="flex items-center gap-3">
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
-                                                onChange={() => toggleCandidate(c.id)}
-                                                className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                disabled={isDisabled}
+                                                onChange={() => toggleCandidate(c)}
+                                                className="size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500 disabled:cursor-not-allowed"
                                             />
                                             <div>
-                                                <div className="flex items-center gap-1.5">
+                                                <div className="flex flex-wrap items-center gap-1.5">
                                                     <span className="text-sm font-semibold text-gray-800">{c.full_name}</span>
                                                     {c.is_current_user && (
                                                         <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
                                                             Tú
                                                         </span>
                                                     )}
-                                                    {isSuggested && (
+                                                    {hasEvaluated && (
+                                                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                                            Ya evaluó
+                                                        </span>
+                                                    )}
+                                                    {c.has_conflict && (
+                                                        <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                                                            Conflicto de interés
+                                                        </span>
+                                                    )}
+                                                    {!c.has_conflict && c.is_full && (
+                                                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                                                            Cupo lleno
+                                                        </span>
+                                                    )}
+                                                    {!c.has_conflict && !c.is_full && isSuggested && (
                                                         <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-200">
                                                             Sugerido
                                                         </span>
@@ -211,11 +269,13 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                                                 <p className="text-xs text-gray-500">{c.email}</p>
                                             </div>
                                         </div>
-                                        <div className="text-right text-[11px] text-gray-500">
+                                        <div className="text-right text-[11px] text-gray-500 whitespace-nowrap">
                                             <p className="font-medium text-gray-700">
                                                 {c.thematic_reviews_count} en temática
                                             </p>
-                                            <p>{c.total_assigned_count} asignados</p>
+                                            <p className={c.total_assigned_count >= 3 ? 'font-semibold text-amber-700' : ''}>
+                                                {c.total_assigned_count} / 3 asignados
+                                            </p>
                                         </div>
                                     </label>
                                 );
@@ -237,8 +297,8 @@ export default function AssignEvaluatorsModal({ isOpen, onClose, onAssigned, art
                             </button>
                             <button
                                 type="submit"
-                                disabled={saving || loading}
-                                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+                                disabled={saving || loading || !canSave}
+                                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {saving ? 'Guardando...' : `Guardar (${selectedIds.length}/3)`}
                             </button>
