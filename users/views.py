@@ -14,6 +14,7 @@ from .models import User, Role, PasswordResetCode
 from rest_framework_simplejwt.tokens import RefreshToken
 
 import string
+from django.conf import settings
 from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
 
 class CaptchaView(APIView):
@@ -56,31 +57,34 @@ class LoginView(APIView):
                 {'error': 'Debes ingresar tu correo/usuario y contraseña.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        # 1. Validación de presencia del CAPTCHA
-        if not captcha_key or not captcha_input:
-            return Response(
-                {'error': 'Por favor ingresa el código CAPTCHA de seguridad.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        # 2. Validación criptográfica y de expiración (5 minutos)
-        signer = TimestampSigner(salt='sciconf-captcha')
-        try:
-            expected_code = signer.unsign(captcha_key, max_age=300)
-            if captcha_input != expected_code.upper():
+
+        bypass_captcha = settings.DEBUG and getattr(settings, 'BYPASS_CAPTCHA', False)
+        if not bypass_captcha:
+            # 1. Validación de presencia del CAPTCHA
+            if not captcha_key or not captcha_input:
                 return Response(
-                    {'error': 'El código CAPTCHA es incorrecto. Inténtalo nuevamente.'},
+                    {'error': 'Por favor ingresa el código CAPTCHA de seguridad.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        except SignatureExpired:
-            return Response(
-                {'error': 'El código CAPTCHA ha expirado. Por favor recárgalo.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except BadSignature:
-            return Response(
-                {'error': 'El código CAPTCHA es inválido.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # 2. Validación criptográfica y de expiración (5 minutos)
+            signer = TimestampSigner(salt='sciconf-captcha')
+            try:
+                expected_code = signer.unsign(captcha_key, max_age=300)
+                if captcha_input != expected_code.upper():
+                    return Response(
+                        {'error': 'El código CAPTCHA es incorrecto. Inténtalo nuevamente.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except SignatureExpired:
+                return Response(
+                    {'error': 'El código CAPTCHA ha expirado. Por favor recárgalo.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except BadSignature:
+                return Response(
+                    {'error': 'El código CAPTCHA es inválido.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         # 3. Busca por correo o por username
         user = User.objects.filter(email=identifier).first() or User.objects.filter(username=identifier).first()
         if user and user.check_password(password):
@@ -123,7 +127,23 @@ class UserViewSet(viewsets.ModelViewSet):
         - ?role=Autor&search=juan   → ambos filtros combinados
         Los Autores solo pueden consultar sus propios datos.
         """
-        queryset = User.objects.prefetch_related('roles').all()
+        queryset = (
+            User.objects
+            .prefetch_related('roles')
+            .annotate(
+                pending_reviews_count=models.Count(
+                    'article_reviews',
+                    filter=models.Q(article_reviews__is_approved__isnull=True),
+                    distinct=True,
+                ),
+                completed_reviews_count=models.Count(
+                    'article_reviews',
+                    filter=models.Q(article_reviews__is_approved__isnull=False),
+                    distinct=True,
+                ),
+            )
+            .all()
+        )
 
         if self.action == 'list' and not has_role(self.request.user, ADMIN, *COMMITTEE_ROLES):
             queryset = queryset.filter(id=self.request.user.id)
@@ -223,6 +243,11 @@ class UserViewSet(viewsets.ModelViewSet):
                     {'error': 'No puedes deshabilitar tu propia cuenta en uso.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            if request.data.get('is_active') is False and instance.article_reviews.filter(is_approved__isnull=True).exists():
+                return Response(
+                    {'error': 'No se puede desactivar este usuario porque tiene evaluaciones pendientes. Reasigna sus revisiones primero.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
@@ -231,6 +256,18 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(
                 {'error': 'El Comité Científico no puede eliminar a un Administrador del Sistema.'},
                 status=status.HTTP_403_FORBIDDEN
+            )
+        if instance.article_reviews.filter(is_approved__isnull=True).exists():
+            return Response(
+                {'error': 'No se puede eliminar este usuario porque tiene evaluaciones pendientes. Reasigna sus revisiones primero.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if instance.article_reviews.filter(is_approved__isnull=False).exists():
+            instance.is_active = False
+            instance.save(update_fields=['is_active'])
+            return Response(
+                {'message': 'Cuenta desactivada para conservar el historial académico.', 'deactivated': True},
+                status=status.HTTP_200_OK
             )
         return super().destroy(request, *args, **kwargs)
 

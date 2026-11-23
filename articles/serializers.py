@@ -10,6 +10,11 @@ class ConferenceDeadlineSerializer(serializers.ModelSerializer):
         model = ConferenceDeadline
         fields = '__all__'
 
+    def validate_copyright_template(self, value):
+        if value and not value.name.lower().endswith('.pdf'):
+            raise serializers.ValidationError('La plantilla de copyright debe estar en formato PDF (.pdf).')
+        return value
+
 class ArticleVersionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ArticleVersion
@@ -27,6 +32,7 @@ class ArticleReviewSerializer(serializers.ModelSerializer):
     other_reviews = serializers.SerializerMethodField()
     presentation_endorsements_count = serializers.SerializerMethodField()
     presentation_votes_count = serializers.SerializerMethodField()
+    publication_endorsed_by = serializers.SerializerMethodField()
 
     class Meta:
         model = ArticleReview
@@ -38,7 +44,7 @@ class ArticleReviewSerializer(serializers.ModelSerializer):
             'comments', 'is_approved', 'reviewed_at',
             'presentation_endorsement', 'presentation_decision', 'presentation_endorsed_at',
             'presentation_endorsements_count', 'presentation_votes_count',
-            'publication_endorsement', 'publication_endorsed_at',
+            'publication_endorsement', 'publication_endorsed_at', 'publication_endorsed_by',
             'other_reviews',
         ]
         read_only_fields = [
@@ -54,6 +60,12 @@ class ArticleReviewSerializer(serializers.ModelSerializer):
 
     def get_presentation_votes_count(self, obj):
         return sum(1 for r in obj.article.reviews.all() if r.presentation_decision is not None)
+
+    def get_publication_endorsed_by(self, obj):
+        for r in obj.article.reviews.all():
+            if r.publication_endorsement:
+                return r.evaluator.get_full_name() or r.evaluator.username
+        return None
 
     def get_other_reviews(self, obj):
         # Solo visible después de que el jurado actual envíe su evaluación inicial

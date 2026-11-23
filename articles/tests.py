@@ -103,6 +103,8 @@ class ArticleListQueryCountTests(APITestCase):
         self.assertEqual(len(suggest_res.data['candidates']), 3)
 
         # Asignación manual incluyendo autoasignación del miembro del comité
+        from django.core import mail
+        mail.outbox.clear()
         selected_ids = [self.evaluators[0].id, self.evaluators[1].id, self.evaluators[2].id]
         assign_res = self.client.post(
             f'/api/v1/articles/{article.id}/assign-evaluators/',
@@ -110,6 +112,9 @@ class ArticleListQueryCountTests(APITestCase):
             format='json'
         )
         self.assertEqual(assign_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 3)
+        notified_recipients = {msg.to[0] for msg in mail.outbox}
+        self.assertEqual(notified_recipients, {ev.email for ev in self.evaluators})
         assigned_ids = set(article.reviews.values_list('evaluator_id', flat=True))
         self.assertEqual(assigned_ids, set(selected_ids))
 
@@ -172,13 +177,25 @@ class ArticleListQueryCountTests(APITestCase):
 
         article_id = create_res.data['id']
 
-        # Edición dentro del plazo
+        # Edición dentro del plazo (reemplazando PDF inicial: debe conservar solo 1 versión INICIAL)
+        new_pdf = SimpleUploadedFile('propuesta_v2.pdf', b'%PDF-1.4 updated', content_type='application/pdf')
         edit_ok = self.client.patch(f'/api/v1/articles/{article_id}/', {
             'title': 'Artículo Editado',
             'keywords': 'IA, Deep Learning',
-        }, format='json')
+            'initial_pdf': new_pdf,
+        }, format='multipart')
         self.assertEqual(edit_ok.status_code, status.HTTP_200_OK)
         self.assertEqual(edit_ok.data['title'], 'Artículo Editado')
+        self.assertEqual(len(edit_ok.data['versions']), 1)
+
+        # Subir otro PDF inicial vía upload-version también debe reemplazar el anterior
+        third_pdf = SimpleUploadedFile('propuesta_v3.pdf', b'%PDF-1.4 third', content_type='application/pdf')
+        upload_res = self.client.post(f'/api/v1/articles/{article_id}/upload-version/', {
+            'version_type': 'INICIAL',
+            'file': third_pdf,
+        }, format='multipart')
+        self.assertEqual(upload_res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Article.objects.get(id=article_id).versions.filter(version_type='INICIAL').count(), 1)
 
         # Edición fuera del plazo debe bloquearse
         deadline.submissions_deadline = now - timedelta(hours=1)
@@ -366,6 +383,72 @@ class ArticleListQueryCountTests(APITestCase):
         )
         self.assertEqual(res_clear_pending.status_code, status.HTTP_200_OK)
         self.assertEqual(list(target.reviews.values_list('evaluator_id', flat=True)), [self.evaluators[0].id])
+
+    def test_copyright_template_final_delivery_and_single_publication_endorsement(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import ArticleVersion, VersionType, ArticleStatus
+
+        now = timezone.now()
+        # Comité/Admin configura fechas límite y plantilla de copyright
+        committee_token = RefreshToken.for_user(self.evaluators[0]).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {committee_token}')
+        tpl_pdf = SimpleUploadedFile('plantilla_copyright.pdf', b'%PDF-1.4 template', content_type='application/pdf')
+        dl_res = self.client.post('/api/v1/deadlines/', {
+            'submissions_deadline': (now + timedelta(days=5)).isoformat(),
+            'reviews_deadline': (now + timedelta(days=7)).isoformat(),
+            'corrections_deadline': (now + timedelta(days=10)).isoformat(),
+            'final_deadline': (now + timedelta(days=15)).isoformat(),
+            'copyright_template': tpl_pdf,
+        }, format='multipart')
+        self.assertIn(dl_res.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
+
+        # Autor descarga la plantilla oficial y sube versión FINAL + copyright
+        author_token = RefreshToken.for_user(self.author).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {author_token}')
+        tpl_dl = self.client.get('/api/v1/deadlines/copyright-template/')
+        self.assertEqual(tpl_dl.status_code, status.HTTP_200_OK)
+
+        article = Article.objects.create(
+            title='Artículo Final', abstract='Abs', keywords='Final',
+            thematic_line='Sistemas Inteligentes', author=self.author,
+            status=ArticleStatus.CON_AVAL_PRESENTACION,
+        )
+        ArticleVersion.objects.create(
+            article=article, version_type=VersionType.INICIAL,
+            file=SimpleUploadedFile('v1.pdf', b'%PDF-1.4 v1', content_type='application/pdf'),
+        )
+        ArticleVersion.objects.create(
+            article=article, version_type=VersionType.CORREGIDA,
+            file=SimpleUploadedFile('v2.pdf', b'%PDF-1.4 v2', content_type='application/pdf'),
+        )
+        review = ArticleReview.objects.create(
+            article=article, evaluator=self.evaluators[0],
+            comments='Ok', is_approved=True, presentation_endorsement=True,
+        )
+
+        # Antes de subir FINAL, endorse-publication debe fallar (400)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {committee_token}')
+        premature = self.client.post(f'/api/v1/reviews/{review.id}/endorse-publication/')
+        self.assertEqual(premature.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Autor sube versión FINAL + copyright firmado
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {author_token}')
+        final_res = self.client.post(f'/api/v1/articles/{article.id}/upload-version/', {
+            'version_type': 'FINAL',
+            'file': SimpleUploadedFile('v3_final.pdf', b'%PDF-1.4 v3', content_type='application/pdf'),
+            'copyright_file': SimpleUploadedFile('copyright_firmado.pdf', b'%PDF-1.4 copy', content_type='application/pdf'),
+        }, format='multipart')
+        self.assertEqual(final_res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(article.versions.count(), 3)
+
+        # 1 solo miembro del comité emite el aval de publicación -> CON_AVAL_PUBLICACION
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {committee_token}')
+        pub_res = self.client.post(f'/api/v1/reviews/{review.id}/endorse-publication/')
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(pub_res.data['article_status'], ArticleStatus.CON_AVAL_PUBLICACION)
+        self.assertEqual(pub_res.data['review']['publication_endorsed_by'], 'jurado0')
 
     def test_authenticated_request_loads_role_without_extra_query(self):
         """Autenticar y evaluar permisos no debe requerir una consulta aparte para el rol."""

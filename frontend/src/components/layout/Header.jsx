@@ -42,7 +42,7 @@ export default function Header({ onMenuClick }) {
                     title="Cerrar sesión"
                     className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition"
                 >
-                    Salir
+                    Cerrar sesión
                 </button>
             </div>
         </header>

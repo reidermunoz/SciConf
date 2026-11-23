@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { submitReviewEvaluation, endorsePresentation } from '../../api/articleApi';
+import { submitReviewEvaluation, endorsePresentation, endorsePublication } from '../../api/articleApi';
+import ConfirmActionModal from '../common/ConfirmActionModal';
 
 const STATUS_BADGE_MAP = {
     POSTULADO: { label: 'POSTULADO', cls: 'bg-gray-100 text-gray-700 border-gray-200' },
@@ -44,6 +45,7 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
     const [submittingEval, setSubmittingEval] = useState(false);
     const [submittingEndorse, setSubmittingEndorse] = useState(false);
     const [currentReview, setCurrentReview] = useState(review);
+    const [pendingConfirm, setPendingConfirm] = useState(null);
 
     useEffect(() => {
         setCurrentReview(review);
@@ -61,6 +63,7 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
     const articleVersions = currentReview.article_versions || [];
     const initialVersion = articleVersions.find((v) => v.version_type === 'INICIAL');
     const correctedVersion = articleVersions.find((v) => v.version_type === 'CORREGIDA');
+    const finalVersion = articleVersions.find((v) => v.version_type === 'FINAL');
 
     const articleStatus = currentReview.article_status || 'EN_REVISION';
     const statusInfo = STATUS_BADGE_MAP[articleStatus] || {
@@ -98,8 +101,8 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
     const endorsementsCount = currentReview.presentation_endorsements_count ?? (currentReview.presentation_endorsement ? 1 : 0);
     const peerReviews = currentReview.other_reviews || [];
 
-    // Enviar evaluación inicial (Aceptar / Rechazar)
-    const handleSubmitDecision = async (isApproved) => {
+    // Solicitar confirmación para evaluación inicial (Aceptar / Rechazar)
+    const handleSubmitDecision = (isApproved) => {
         if (!scores.originality_score || !scores.relevance_score || !scores.technical_quality_score) {
             toast.error('Debes calificar Originalidad, Pertinencia y Calidad Técnica (1 a 5).');
             return;
@@ -108,58 +111,105 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
             toast.error('Debes ingresar comentarios u observaciones para el autor.');
             return;
         }
-        const actionLabel = isApproved ? 'ACEPTAR' : 'RECHAZAR';
-        if (!window.confirm(`¿Confirmas que deseas ${actionLabel} este artículo? Tu voto es definitivo.`)) {
-            return;
-        }
+        setPendingConfirm({ type: 'evaluation', isApproved });
+    };
 
-        setSubmittingEval(true);
-        try {
-            const res = await submitReviewEvaluation(currentReview.id, {
-                comments: comments.trim(),
-                is_approved: isApproved,
-                originality_score: scores.originality_score,
-                relevance_score: scores.relevance_score,
-                technical_quality_score: scores.technical_quality_score,
-            });
-            toast.success(res.data.message || 'Evaluación registrada exitosamente');
-            if (res.data.review) {
-                setCurrentReview(res.data.review);
+    // Solicitar confirmación para aval de presentación
+    const handlePresentationDecision = (approved) => {
+        setPendingConfirm({ type: 'presentation', approved });
+    };
+
+    // Solicitar confirmación para aval de publicación
+    const handlePublicationEndorse = () => {
+        setPendingConfirm({ type: 'publication' });
+    };
+
+    // Ejecutar acción confirmada en ConfirmActionModal
+    const executeConfirmedAction = async () => {
+        if (!pendingConfirm) return;
+        if (pendingConfirm.type === 'evaluation') {
+            setSubmittingEval(true);
+            try {
+                const res = await submitReviewEvaluation(currentReview.id, {
+                    comments: comments.trim(),
+                    is_approved: pendingConfirm.isApproved,
+                    originality_score: scores.originality_score,
+                    relevance_score: scores.relevance_score,
+                    technical_quality_score: scores.technical_quality_score,
+                });
+                toast.success(res.data.message || 'Evaluación registrada exitosamente');
+                if (res.data.review) {
+                    setCurrentReview(res.data.review);
+                }
+                setPendingConfirm(null);
+                if (onSuccess) onSuccess();
+            } catch (err) {
+                toast.error(err.response?.data?.error || 'Error al guardar la evaluación');
+            } finally {
+                setSubmittingEval(false);
             }
-            if (onSuccess) onSuccess();
-        } catch (err) {
-            toast.error(err.response?.data?.error || 'Error al guardar la evaluación');
-        } finally {
-            setSubmittingEval(false);
+        } else if (pendingConfirm.type === 'presentation') {
+            setSubmittingEndorse(true);
+            try {
+                const res = await endorsePresentation(currentReview.id, pendingConfirm.approved);
+                toast.success(
+                    res.data?.message ||
+                        (pendingConfirm.approved
+                            ? 'Aval para presentación emitido correctamente'
+                            : 'Decisión registrada: corrección no avalada')
+                );
+                if (res.data?.review) {
+                    setCurrentReview(res.data.review);
+                }
+                setPendingConfirm(null);
+                if (onSuccess) onSuccess();
+            } catch (err) {
+                toast.error(err.response?.data?.error || 'Error al registrar la decisión de aval');
+            } finally {
+                setSubmittingEndorse(false);
+            }
+        } else if (pendingConfirm.type === 'publication') {
+            setSubmittingEndorse(true);
+            try {
+                const res = await endorsePublication(currentReview.id);
+                toast.success(res.data?.message || 'Aval para publicación emitido correctamente');
+                if (res.data?.review) {
+                    setCurrentReview(res.data.review);
+                }
+                setPendingConfirm(null);
+                if (onSuccess) onSuccess();
+            } catch (err) {
+                toast.error(err.response?.data?.error || 'Error al emitir el aval de publicación');
+            } finally {
+                setSubmittingEndorse(false);
+            }
         }
     };
 
-    // Aval para presentación (Emitir Aval / No Avalar Corrección)
-    const handlePresentationDecision = async (approved) => {
-        const confirmMsg = approved
-            ? '¿Confirmas emitir el Aval para Presentación de este artículo?'
-            : '¿Confirmas registrar que NO avalas la corrección de este artículo?';
-        if (!window.confirm(confirmMsg)) {
-            return;
+    const confirmConfig = (() => {
+        if (!pendingConfirm) return null;
+        if (pendingConfirm.type === 'evaluation') {
+            return {
+                title: pendingConfirm.isApproved ? 'Confirmar aceptación de artículo' : 'Confirmar rechazo de artículo',
+                message: (
+                    <>
+                        Tu calificación y decisión son definitivas:{' '}
+                        <strong>no podrás editarlas ni deshacerlas</strong> después de enviarlas para garantizar la revisión ciega. ¿Confirmas el envío de tu evaluación?
+                    </>
+                ),
+            };
         }
-
-        setSubmittingEndorse(true);
-        try {
-            const res = await endorsePresentation(currentReview.id, approved);
-            toast.success(
-                res.data?.message ||
-                    (approved ? 'Aval para presentación emitido correctamente' : 'Decisión registrada: corrección no avalada')
-            );
-            if (res.data?.review) {
-                setCurrentReview(res.data.review);
-            }
-            if (onSuccess) onSuccess();
-        } catch (err) {
-            toast.error(err.response?.data?.error || 'Error al registrar la decisión de aval');
-        } finally {
-            setSubmittingEndorse(false);
+        if (pendingConfirm.type === 'presentation') {
+            return {
+                title: pendingConfirm.approved ? 'Confirmar Aval para Presentación' : 'Confirmar No Avalar Corrección',
+                message: 'Esta decisión sobre la versión corregida no se puede revertir y actualizará el estado de avales del artículo. ¿Confirmas tu veredicto?',
+            };
         }
-    };
+        return {
+            title: 'Confirmar Aval para Publicación',
+            message: 'Confirmas que has verificado la versión final y el formato de cesión de derechos (copyright). Esta acción es definitiva. ¿Deseas emitir el aval de publicación?',
+        };
+    })();
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
@@ -489,20 +539,97 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
                                 )}
                             </div>
 
-                            {/* Tarjeta B - Aval para Publicación (Placeholder bloqueado por ahora) */}
-                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-100/80 p-3.5 border border-gray-200 opacity-75">
-                                <div>
-                                    <p className="font-medium text-gray-700 flex items-center gap-1.5">
-                                        <span>🔒</span>
-                                        <span>Aval para Publicación</span>
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                        Fase post-evento: disponible después de la presentación en la agenda
-                                    </p>
+                            {/* Tarjeta B - Aval para Publicación (1 miembro del Comité) */}
+                            <div className="rounded-lg bg-white p-3.5 border border-gray-200">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                        <p className="font-medium text-gray-800">Aval para Publicación</p>
+                                        <p className="text-xs text-gray-500">
+                                            Verificar versión final y documento de cesión de derechos (copyright) firmado.
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-semibold text-gray-700">
+                                        {articleStatus === 'CON_AVAL_PUBLICACION' ? '1 / 1 aval' : '0 / 1 aval'}
+                                    </span>
                                 </div>
-                                <span className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-500 cursor-not-allowed">
-                                    Bloqueado
-                                </span>
+
+                                {articleStatus === 'CON_AVAL_PUBLICACION' ? (
+                                    <div className="mt-3 flex flex-col gap-2.5">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                            <span className="font-semibold">
+                                                ✓ Aval de publicación emitido
+                                            </span>
+                                            <span>
+                                                Aprobado por: <strong>{currentReview.publication_endorsed_by || 'Comité Científico'}</strong>
+                                            </span>
+                                        </div>
+                                        {finalVersion && (
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {finalVersion.file && (
+                                                    <a
+                                                        href={finalVersion.file}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="rounded-md bg-brand-50 border border-brand-200 px-2.5 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
+                                                    >
+                                                        📄 PDF Versión Final
+                                                    </a>
+                                                )}
+                                                {finalVersion.copyright_file && (
+                                                    <a
+                                                        href={finalVersion.copyright_file}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+                                                    >
+                                                        📝 PDF Copyright Firmado
+                                                    </a>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : articleStatus === 'FINAL_ENTREGADO' && finalVersion?.file && finalVersion?.copyright_file ? (
+                                    <div className="mt-3 flex flex-col gap-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                            <span className="text-[11px] text-gray-500">
+                                                Entrega final subida el {formatDate(finalVersion.created_at)}
+                                            </span>
+                                            <div className="flex flex-wrap gap-2">
+                                                <a
+                                                    href={finalVersion.file}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="rounded-md bg-brand-50 border border-brand-200 px-2.5 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100 transition"
+                                                >
+                                                    📄 PDF Versión Final
+                                                </a>
+                                                <a
+                                                    href={finalVersion.copyright_file}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+                                                >
+                                                    📝 PDF Copyright Firmado
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={submittingEndorse}
+                                            onClick={handlePublicationEndorse}
+                                            className="w-full rounded-lg bg-purple-600 px-4 py-2 text-xs font-semibold text-white hover:bg-purple-700 transition disabled:opacity-50"
+                                        >
+                                            {submittingEndorse ? 'Procesando...' : '✓ Emitir Aval de Publicación'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                                        <span>🔒</span>
+                                        <span>
+                                            Se habilitará cuando el artículo cuente con aval de presentación y el autor suba la versión final y el copyright firmado.
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -519,6 +646,17 @@ export default function ReviewModal({ isOpen, onClose, review, deadlines = null,
                     </button>
                 </div>
             </div>
+
+            <ConfirmActionModal
+                isOpen={Boolean(pendingConfirm)}
+                onClose={() => !(submittingEval || submittingEndorse) && setPendingConfirm(null)}
+                onConfirm={executeConfirmedAction}
+                variant="warning"
+                title={confirmConfig?.title}
+                message={confirmConfig?.message}
+                confirmText="Confirmar y enviar"
+                loading={submittingEval || submittingEndorse}
+            />
         </div>
     );
 }

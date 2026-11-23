@@ -56,6 +56,7 @@ export default function Articles() {
     const [selectedReview, setSelectedReview] = useState(null);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [selectedArticleForUpload, setSelectedArticleForUpload] = useState(null);
+    const [uploadFixedType, setUploadFixedType] = useState('CORREGIDA');
     
     // Debounce solo al escribir en búsqueda; la carga inicial y los selectores son inmediatos
     useEffect(() => {
@@ -143,6 +144,9 @@ export default function Articles() {
     const isCorrectionOpen =
         !deadlines?.corrections_deadline ||
         new Date() <= new Date(deadlines.corrections_deadline);
+    const isFinalOpen =
+        !deadlines?.final_deadline ||
+        new Date() <= new Date(deadlines.final_deadline);
 
     // Determina si el usuario logueado puede editar este artículo en específico (solo su propio autor antes del plazo)
     const canUserEdit = (article) => {
@@ -154,8 +158,9 @@ export default function Articles() {
         setIsReviewOpen(true);
     };
 
-    const handleOpenUpload = (article) => {
+    const handleOpenUpload = (article, fixedType = 'CORREGIDA') => {
         setSelectedArticleForUpload(article);
+        setUploadFixedType(fixedType);
         setIsUploadOpen(true);
     };
     return (
@@ -345,6 +350,11 @@ export default function Articles() {
                                                     article.author === currentUser?.id &&
                                                     article.status === 'ACEPTADO' &&
                                                     isCorrectionOpen;
+                                                const canUploadFinal =
+                                                    isAuthor &&
+                                                    article.author === currentUser?.id &&
+                                                    article.status === 'CON_AVAL_PRESENTACION' &&
+                                                    isFinalOpen;
                                                 return (
                                                     <div className="flex items-center justify-end gap-2">
                                                         {/* Ver Detalle (todos los roles) */}
@@ -367,22 +377,37 @@ export default function Articles() {
                                                             </button>
                                                         )}
 
-                                                        {/* Autor: Subir versión (cuando está ACEPTADO dentro del plazo) */}
+                                                        {/* Autor: Subir versión (ACEPTADO -> Corregida, CON_AVAL_PRESENTACION -> Final + Copyright) */}
                                                         {isAuthor && article.author === currentUser?.id && (
-                                                            <button
-                                                                onClick={() => handleOpenUpload(article)}
-                                                                disabled={!canUploadCorrection}
-                                                                className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 transition text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
-                                                                title={
-                                                                    article.status !== 'ACEPTADO'
-                                                                        ? 'Disponible cuando el artículo sea ACEPTADO'
-                                                                        : !isCorrectionOpen
-                                                                        ? 'El plazo de entrega de correcciones ha finalizado'
-                                                                        : 'Subir versión corregida (PDF)'
-                                                                }
-                                                            >
-                                                                📤 Subir versión
-                                                            </button>
+                                                            article.status === 'CON_AVAL_PRESENTACION' ? (
+                                                                <button
+                                                                    onClick={() => handleOpenUpload(article, 'FINAL')}
+                                                                    disabled={!canUploadFinal}
+                                                                    className="rounded-lg p-1.5 text-purple-700 hover:bg-purple-50 transition text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                                                                    title={
+                                                                        !isFinalOpen
+                                                                            ? 'El plazo de entrega final ha finalizado'
+                                                                            : 'Subir versión final y copyright (PDF)'
+                                                                    }
+                                                                >
+                                                                    📤 Subir Versión Final y Copyright
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleOpenUpload(article, 'CORREGIDA')}
+                                                                    disabled={!canUploadCorrection}
+                                                                    className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50 transition text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                                                                    title={
+                                                                        article.status !== 'ACEPTADO'
+                                                                            ? 'Disponible cuando el artículo sea ACEPTADO'
+                                                                            : !isCorrectionOpen
+                                                                            ? 'El plazo de entrega de correcciones ha finalizado'
+                                                                            : 'Subir versión corregida (PDF)'
+                                                                    }
+                                                                >
+                                                                    📤 Subir versión
+                                                                </button>
+                                                            )
                                                         )}
 
                                                         {/* Comité: Evaluar (solo si está asignado como jurado) */}
@@ -470,7 +495,8 @@ export default function Articles() {
                     setSelectedArticleForUpload(null);
                 }}
                 article={selectedArticleForUpload}
-                fixedVersionType="CORREGIDA"
+                fixedVersionType={uploadFixedType}
+                deadlines={deadlines}
                 onSuccess={fetchArticles}
             />
         </div>

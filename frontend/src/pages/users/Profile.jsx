@@ -14,6 +14,7 @@ export default function Profile() {
         last_name: "",
         phone: "",
         institution: "",
+        current_password: "",
         password: "",
         confirm_password: "",
     });
@@ -44,6 +45,7 @@ export default function Profile() {
                         last_name: response.data.last_name || "",
                         phone: response.data.phone || "",
                         institution: response.data.institution || "",
+                        current_password: "",
                         password: "",
                         confirm_password: "",
                     };
@@ -74,6 +76,7 @@ export default function Profile() {
                         last_name: user.last_name || "",
                         phone: user.phone || "",
                         institution: user.institution || "",
+                        current_password: "",
                         password: "",
                         confirm_password: "",
                     };
@@ -146,7 +149,10 @@ export default function Profile() {
             }
         }
 
-        if (showPasswordChange || formData.password || formData.confirm_password) {
+        if (showPasswordChange || formData.current_password || formData.password || formData.confirm_password) {
+            if (!formData.current_password) {
+                errors.current_password = "Debes ingresar tu contraseña actual.";
+            }
             if (!formData.password) {
                 errors.password = "Debes ingresar una nueva contraseña si deseas cambiarla.";
             } else if (formData.password.length < 8) {
@@ -184,6 +190,7 @@ export default function Profile() {
         };
 
         if (formData.password) {
+            payload.current_password = formData.current_password;
             payload.password = formData.password;
         }
 
@@ -210,6 +217,7 @@ export default function Profile() {
                 last_name: response.data.last_name || "",
                 phone: response.data.phone || "",
                 institution: response.data.institution || "",
+                current_password: "",
                 password: "",
                 confirm_password: "",
             };
@@ -446,11 +454,13 @@ export default function Profile() {
                                     if (showPasswordChange) {
                                         setFormData((prev) => ({
                                             ...prev,
+                                            current_password: "",
                                             password: "",
                                             confirm_password: "",
                                         }));
                                         setFieldErrors((prev) => {
                                             const updated = { ...prev };
+                                            delete updated.current_password;
                                             delete updated.password;
                                             delete updated.confirm_password;
                                             return updated;
@@ -465,6 +475,25 @@ export default function Profile() {
 
                         {showPasswordChange && (
                             <div className="mt-4 grid grid-cols-1 gap-4 border-t border-gray-200 pt-4 sm:grid-cols-2">
+                                <div className="sm:col-span-2">
+                                    <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                                        Contraseña actual <span className="text-red-500">*</span>
+                                    </label>
+                                    <PasswordInput
+                                        name="current_password"
+                                        placeholder="Ingresa tu contraseña actual"
+                                        value={formData.current_password}
+                                        onChange={handleChange}
+                                        className={`h-11 w-full rounded-lg border bg-white px-3 text-sm outline-none transition focus:ring-2 focus:ring-brand-500/20 ${
+                                            fieldErrors.current_password
+                                                ? "border-red-400 focus:border-red-500"
+                                                : "border-gray-300 focus:border-brand-500"
+                                        }`}
+                                    />
+                                    {fieldErrors.current_password && (
+                                        <p className="mt-1 text-xs text-red-500">{fieldErrors.current_password}</p>
+                                    )}
+                                </div>
                                 <div>
                                     <label className="mb-1.5 block text-sm font-medium text-gray-700">
                                         Nueva contraseña <span className="text-red-500">*</span>

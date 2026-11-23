@@ -1,4 +1,5 @@
 import random
+from django.core.mail import send_mail
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -132,11 +133,12 @@ def assign_evaluators_to_article(article, evaluator_ids=None):
 
         target_ids = unique_ids
 
+    newly_assigned_ids = [uid for uid in target_ids if uid not in existing_ids]
+
     with transaction.atomic():
         article.reviews.filter(is_approved__isnull=True).exclude(evaluator_id__in=target_ids).delete()
-        for uid in target_ids:
-            if uid not in existing_ids:
-                ArticleReview.objects.create(article=article, evaluator_id=uid)
+        for uid in newly_assigned_ids:
+            ArticleReview.objects.create(article=article, evaluator_id=uid)
 
         if len(target_ids) == 0:
             if article.status == ArticleStatus.EN_REVISION:
@@ -146,9 +148,38 @@ def assign_evaluators_to_article(article, evaluator_ids=None):
             article.status = ArticleStatus.EN_REVISION
             article.save(update_fields=['status'])
 
+    if newly_assigned_ids:
+        _notify_assigned_evaluators(article, newly_assigned_ids)
+
     if len(target_ids) == len(evaluated_ids) and len(target_ids) < 3:
         return True, f"Se limpiaron los jurados pendientes del artículo '{article.title}'."
     return True, f"Se asignaron {len(target_ids)} jurado(s) exitosamente al artículo '{article.title}'."
+
+
+def _notify_assigned_evaluators(article, evaluator_ids):
+    """Envía un correo de notificación a cada evaluador recién asignado."""
+    deadline = get_conference_deadlines()
+    deadline_line = (
+        f"Fecha límite de revisión: {deadline.reviews_deadline.strftime('%d/%m/%Y %H:%M')}\n"
+        if deadline and deadline.reviews_deadline
+        else ""
+    )
+    evaluators = User.objects.filter(id__in=evaluator_ids).exclude(email='')
+    for member in evaluators:
+        send_mail(
+            subject=f'Nueva asignación de evaluación en SciConf: {article.title}',
+            message=(
+                f"Hola {member.first_name or member.username},\n\n"
+                f"Has sido asignado como jurado evaluador del siguiente artículo en SciConf:\n\n"
+                f"  • Título: {article.title}\n"
+                f"  • Línea temática: {article.thematic_line}\n"
+                f"{deadline_line}\n"
+                f"Ingresa a SciConf en el módulo 'Versiones y revisiones' para revisar el PDF inicial y registrar tu evaluación.\n"
+            ),
+            from_email=None,
+            recipient_list=[member.email],
+            fail_silently=True,
+        )
 
 
 def suggest_evaluators_for_article(article, current_user=None):
@@ -287,10 +318,10 @@ def check_and_update_endorsements(article):
             article.save(update_fields=['status'])
             return True, "Artículo cuenta con aval para presentación."
         
-    # Verificar aval para publicación
+    # Verificar aval para publicación (basta 1 miembro del Comité Científico)
     elif article.status == ArticleStatus.FINAL_ENTREGADO:
         pub_endorsements = reviews.filter(publication_endorsement=True).count()
-        if pub_endorsements >= 2:
+        if pub_endorsements >= 1:
             article.status = ArticleStatus.CON_AVAL_PUBLICACION
             article.save(update_fields=['status'])
             return True, "Artículo cuenta con aval para publicación."

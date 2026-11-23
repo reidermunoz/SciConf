@@ -97,5 +97,22 @@ export const getDeadlines = async () => {
 };
 
 export const updateDeadlines = async (data) => {
-    return await api.post('/deadlines/', data);
+    const config = data instanceof FormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : {};
+    return await api.post('/deadlines/', data, config);
+};
+
+export const downloadCopyrightTemplate = async () => {
+    const response = await api.get('/deadlines/copyright-template/', {
+        responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'plantilla_copyright.pdf');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
 };

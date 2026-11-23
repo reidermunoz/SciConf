@@ -61,10 +61,19 @@ class UserUpdateTests(APITestCase):
     def test_author_can_change_password(self):
         self.client.force_authenticate(user=self.author)
         url = f'/api/v1/users/{self.author.id}/'
-        payload = {
-            'password': 'NewSecretPassword999!'
-        }
-        response = self.client.patch(url, payload, format='json')
+
+        # Sin contraseña actual o con contraseña actual incorrecta debe fallar
+        bad_res = self.client.patch(url, {
+            'current_password': 'WrongPassword!',
+            'password': 'NewSecretPassword999!',
+        }, format='json')
+        self.assertEqual(bad_res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Con contraseña actual correcta debe actualizar
+        response = self.client.patch(url, {
+            'current_password': 'Password123!',
+            'password': 'NewSecretPassword999!',
+        }, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.author.refresh_from_db()
@@ -195,6 +204,59 @@ class UserUpdateTests(APITestCase):
             format='json'
         )
         self.assertEqual(forbidden_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_delete_or_deactivate_user_respects_review_history(self):
+        from articles.models import Article, ArticleReview
+
+        juror = User.objects.create_user(
+            username='jurado_hist', email='jurado_hist@test.com', password='Password123!'
+        )
+        juror.roles.add(self.role_committee)
+        art = Article.objects.create(
+            title='Art Test', abstract='Abs', keywords='K',
+            thematic_line='Sistemas Inteligentes', author=self.author
+        )
+        review = ArticleReview.objects.create(article=art, evaluator=juror)
+
+        self.client.force_authenticate(user=self.admin)
+        # Con evaluación pendiente: bloqueado (400)
+        res_pending = self.client.delete(f'/api/v1/users/{juror.id}/')
+        self.assertEqual(res_pending.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Con evaluación completada: solo desactiva para conservar historial
+        review.is_approved = True
+        review.comments = 'Bien'
+        review.save()
+        res_history = self.client.delete(f'/api/v1/users/{juror.id}/')
+        self.assertEqual(res_history.status_code, status.HTTP_200_OK)
+        juror.refresh_from_db()
+        self.assertFalse(juror.is_active)
+
+    def test_login_captcha_bypass_requires_debug_and_setting(self):
+        from django.test import override_settings
+
+        payload = {
+            'email': 'autor1@test.com',
+            'password': 'Password123!',
+            'captcha_key': 'bypass-dev-token',
+            'captcha_input': 'BYPAS',
+        }
+
+        # DEBUG=True + BYPASS_CAPTCHA=True -> permite acceso con token de prueba
+        with override_settings(DEBUG=True, BYPASS_CAPTCHA=True):
+            res_ok = self.client.post('/api/v1/login/', payload, format='json')
+            self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
+            self.assertIn('access', res_ok.data)
+
+        # DEBUG=False + BYPASS_CAPTCHA=True -> exige CAPTCHA válido
+        with override_settings(DEBUG=False, BYPASS_CAPTCHA=True):
+            res_prod = self.client.post('/api/v1/login/', payload, format='json')
+            self.assertEqual(res_prod.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # DEBUG=True + BYPASS_CAPTCHA=False -> exige CAPTCHA válido
+        with override_settings(DEBUG=True, BYPASS_CAPTCHA=False):
+            res_strict = self.client.post('/api/v1/login/', payload, format='json')
+            self.assertEqual(res_strict.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_token_refresh(self):
         from rest_framework_simplejwt.tokens import RefreshToken

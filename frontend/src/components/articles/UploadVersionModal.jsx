@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { uploadArticleVersion } from '../../api/articleApi';
+import { uploadArticleVersion, downloadCopyrightTemplate, getDeadlines } from '../../api/articleApi';
 
 const VERSION_OPTIONS = [
     { value: 'INICIAL', label: 'Propuesta inicial (PDF)' },
@@ -8,21 +8,37 @@ const VERSION_OPTIONS = [
     { value: 'FINAL', label: 'Versión final para publicación (PDF + Copyright)' },
 ];
 
-export default function UploadVersionModal({ isOpen, onClose, article, onSuccess, fixedVersionType = null }) {
+export default function UploadVersionModal({ isOpen, onClose, article, onSuccess, fixedVersionType = null, deadlines = null }) {
     const [versionType, setVersionType] = useState(fixedVersionType || 'INICIAL');
     const [file, setFile] = useState(null);
     const [copyrightFile, setCopyrightFile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+    const [hasTemplate, setHasTemplate] = useState(Boolean(deadlines?.copyright_template));
 
     useEffect(() => {
         if (isOpen) {
             setVersionType(fixedVersionType || 'INICIAL');
             setFile(null);
             setCopyrightFile(null);
+            if (deadlines) {
+                setHasTemplate(Boolean(deadlines.copyright_template));
+            } else {
+                getDeadlines()
+                    .then((res) => setHasTemplate(Boolean(res.data?.copyright_template)))
+                    .catch(() => setHasTemplate(false));
+            }
         }
-    }, [isOpen, fixedVersionType]);
+    }, [isOpen, fixedVersionType, deadlines]);
 
     if (!isOpen || !article) return null;
+
+    const handleDownloadTemplate = async () => {
+        try {
+            await downloadCopyrightTemplate();
+        } catch {
+            toast.error('No se pudo descargar la plantilla oficial de copyright.');
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -71,6 +87,8 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
                                 ? 'Subir Versión Corregida (PDF)'
                                 : fixedVersionType === 'INICIAL'
                                 ? 'Reemplazar PDF Inicial'
+                                : fixedVersionType === 'FINAL'
+                                ? 'Subir Versión Final y Copyright'
                                 : 'Subir Versión de Artículo'}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">Artículo: <span className="font-medium text-gray-700">{article.title}</span></p>
@@ -99,6 +117,8 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
                         <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs text-blue-800">
                             {fixedVersionType === 'CORREGIDA' ? (
                                 <>Se registrará como <strong>Versión corregida para presentación (PDF)</strong> conservando la propuesta inicial en el historial.</>
+                            ) : fixedVersionType === 'FINAL' ? (
+                                <>Se registrará como <strong>Versión final para publicación</strong> conservando las versiones anteriores en el historial.</>
                             ) : (
                                 <>Se cargará como <strong>Propuesta inicial (PDF)</strong> dentro del plazo de postulación.</>
                             )}
@@ -118,6 +138,26 @@ export default function UploadVersionModal({ isOpen, onClose, article, onSuccess
                         </div>
                     )}
                     
+                    {/* Plantilla oficial de Copyright en modo FINAL */}
+                    {versionType === 'FINAL' && (
+                        <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-3.5 text-xs">
+                            <p className="font-semibold text-brand-900 mb-1">1. Descarga la plantilla oficial de Copyright</p>
+                            {hasTemplate ? (
+                                <button
+                                    type="button"
+                                    onClick={handleDownloadTemplate}
+                                    className="rounded-lg bg-white border border-brand-200 px-3 py-1.5 font-semibold text-brand-700 hover:bg-brand-100 transition"
+                                >
+                                    📥 Descargar plantilla oficial de Copyright (PDF)
+                                </button>
+                            ) : (
+                                <p className="text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                    ℹ️ Aún no hay una plantilla oficial de copyright cargada por la organización.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
                     {/* Archivo PDF del artículo */}
                     <div>
                         <label className="mb-1 block font-medium text-gray-700">
