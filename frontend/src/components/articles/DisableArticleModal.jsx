@@ -1,25 +1,18 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { disableArticle } from '../../api/articleApi';
-
+import ConfirmActionModal from '../common/ConfirmActionModal';
 
 export default function DisableArticleModal({ isOpen, onClose, onUpdated, article }) {
+    const [reason, setReason] = useState(article?.deactivation_reason || '');
+    const [loading, setLoading] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+
     if (!isOpen || !article) return null;
 
     const isCurrentlyActive = article.is_active;
 
-    const [reason, setReason] = useState(article.deactivation_reason || '');
-
-    const [loading, setLoading] = useState(false);
-
-    const handleAction = async (e) => {
-        e.preventDefault();
-        
-        // Si se va a deshabilitar, requerimos un motivo claro
-        if (isCurrentlyActive && !reason.trim()) {
-            toast.error('Por favor indique el motivo de la deshabilitación.');
-            return;
-        }
+    const executeAction = async () => {
         setLoading(true);
         try {
             await disableArticle(article.id, {
@@ -31,6 +24,7 @@ export default function DisableArticleModal({ isOpen, onClose, onUpdated, articl
                     ? 'Artículo deshabilitado para la conferencia.'
                     : 'Artículo reactivado exitosamente.'
             );
+            setConfirmOpen(false);
             onUpdated();
             onClose();
         } catch (err) {
@@ -43,7 +37,22 @@ export default function DisableArticleModal({ isOpen, onClose, onUpdated, articl
             setLoading(false);
         }
     };
+
+    const handleAction = async (e) => {
+        e.preventDefault();
+        // Si se va a deshabilitar, requerimos un motivo claro antes de confirmar
+        if (isCurrentlyActive && !reason.trim()) {
+            toast.error('Por favor indique el motivo de la deshabilitación.');
+            return;
+        }
+        if (isCurrentlyActive) {
+            setConfirmOpen(true);
+            return;
+        }
+        await executeAction();
+    };
     return (
+        <>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
             <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl transition-all">
                 <div className="mb-4">
@@ -110,5 +119,21 @@ export default function DisableArticleModal({ isOpen, onClose, onUpdated, articl
                 </form>
             </div>
         </div>
+        <ConfirmActionModal
+            isOpen={confirmOpen}
+            onClose={() => !loading && setConfirmOpen(false)}
+            onConfirm={executeAction}
+            variant="danger"
+            title="Deshabilitar artículo"
+            message={
+                <>
+                    Al deshabilitar este artículo, desaparecerá de las consultas, se retirará automáticamente de la agenda y{' '}
+                    <strong>esta acción no se puede deshacer</strong>. ¿Estás seguro de que deseas continuar?
+                </>
+            }
+            confirmText="Sí, deshabilitar artículo"
+            loading={loading}
+        />
+        </>
     );
 }

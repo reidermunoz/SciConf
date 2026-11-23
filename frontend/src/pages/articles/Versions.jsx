@@ -5,6 +5,7 @@ import { getArticles, getMyReviews, getDeadlines } from '../../api/articleApi';
 import UploadVersionModal from '../../components/articles/UploadVersionModal';
 import ReviewModal from '../../components/articles/ReviewModal';
 import AssignEvaluatorsModal from '../../components/articles/AssignEvaluatorsModal';
+import DeadlinesConfigModal from '../../components/articles/DeadlinesConfigModal';
 
 const STATUS_BADGE_MAP = {
     POSTULADO: { label: 'POSTULADO', cls: 'bg-gray-100 text-gray-700 border-gray-200' },
@@ -62,6 +63,7 @@ export default function Versions() {
     const [isReviewOpen, setIsReviewOpen] = useState(false);
     const [selectedArticleForAssign, setSelectedArticleForAssign] = useState(null);
     const [isAssignOpen, setIsAssignOpen] = useState(false);
+    const [isDeadlinesOpen, setIsDeadlinesOpen] = useState(false);
 
     // Cargar datos en paralelo para reducir el tiempo total de espera
     const fetchData = useCallback(async (isManual = false) => {
@@ -169,6 +171,15 @@ export default function Versions() {
                         </svg>
                         <span>Actualizar</span>
                     </button>
+                    {(isAdmin || isCommittee) && (
+                        <button
+                            type="button"
+                            onClick={() => setIsDeadlinesOpen(true)}
+                            className="rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-2.5 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
+                        >
+                            ⚙️ Plazos y Copyright
+                        </button>
+                    )}
                 </div>
             </div>
             
@@ -262,6 +273,9 @@ export default function Versions() {
                             const isCorrectionOpen =
                                 !deadlines?.corrections_deadline ||
                                 new Date() <= new Date(deadlines.corrections_deadline);
+                            const isFinalOpen =
+                                !deadlines?.final_deadline ||
+                                new Date() <= new Date(deadlines.final_deadline);
 
                             const uploadConfig = (() => {
                                 if (isAdmin) return null;
@@ -289,8 +303,24 @@ export default function Versions() {
                                             : 'Subir versión corregida para presentación (PDF)',
                                     };
                                 }
+                                if (art.status === 'CON_AVAL_PRESENTACION') {
+                                    return {
+                                        label: '📤 Subir Versión Final y Copyright',
+                                        fixedType: 'FINAL',
+                                        enabled: isPrincipalAuthor && isFinalOpen,
+                                        title: !isPrincipalAuthor
+                                            ? `Solo el autor principal (${art.author_name}) puede subir versiones`
+                                            : !isFinalOpen
+                                            ? 'El plazo de entrega final ha finalizado'
+                                            : 'Subir versión final y cesión de copyright (PDF)',
+                                    };
+                                }
                                 return null;
                             })();
+
+                            const chronologicalVersions = [...(art.versions || [])].sort(
+                                (a, b) => new Date(a.created_at) - new Date(b.created_at)
+                            );
 
                             const reviews = art.reviews || [];
                             const endorsementsCount = reviews.filter((r) => r.presentation_endorsement).length;
@@ -385,9 +415,9 @@ export default function Versions() {
                                         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                                             Versiones entregadas:
                                         </h4>
-                                        {art.versions && art.versions.length > 0 ? (
+                                        {chronologicalVersions.length > 0 ? (
                                             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                                {art.versions.map((ver) => (
+                                                {chronologicalVersions.map((ver) => (
                                                     <div key={ver.id} className="flex items-center justify-between rounded-xl bg-gray-50 p-3 border border-gray-100 text-xs">
                                                         <div>
                                                             <p className="font-semibold text-gray-700">{ver.version_type}</p>
@@ -738,7 +768,16 @@ export default function Versions() {
                 }}
                 article={selectedArticleForUpload}
                 fixedVersionType={uploadFixedType}
+                deadlines={deadlines}
                 onSuccess={fetchData}
+            />
+
+            {/* Modal de configuración de plazos y copyright (Admin / Comité) */}
+            <DeadlinesConfigModal
+                isOpen={isDeadlinesOpen}
+                onClose={() => setIsDeadlinesOpen(false)}
+                deadlines={deadlines}
+                onSaved={fetchData}
             />
             
             {/* Modal de evaluación de jurado */}

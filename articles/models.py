@@ -209,6 +209,12 @@ class ConferenceDeadline(models.Model):
     final_deadline = models.DateTimeField(
         verbose_name='Límite de entrega de versión final y copyright'
     )
+    copyright_template = models.FileField(
+        upload_to='conference/copyright_templates/',
+        null=True,
+        blank=True,
+        verbose_name='Plantilla oficial de copyright (PDF)'
+    )
     class Meta:
         verbose_name = 'Fecha límite de la conferencia'
         verbose_name_plural = 'Fechas límite de la conferencia'

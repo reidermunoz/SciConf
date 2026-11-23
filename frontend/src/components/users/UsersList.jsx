@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import toast from "react-hot-toast";
 import { getUsers, getRoles, deleteUser, updateUser } from "../../api/userApi";
 import useAuth, { ROLES, updateAuthUser } from "../../hooks/useAuth";
+import ConfirmActionModal from "../common/ConfirmActionModal";
 
 export default function UserList({ refreshTrigger, onLoadingChange }) {
     const { user: currentUser, isAdmin, isCommittee, canManageUsers, canChangeRoles } = useAuth();
@@ -42,6 +43,8 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         : [];
 
     const [saving, setSaving] = useState(false);
+    const [pendingUserAction, setPendingUserAction] = useState(null);
+    const [confirmingUserAction, setConfirmingUserAction] = useState(false);
 
     const fetchData = useCallback(async (isManual = false) => {
         setLoading(true);
@@ -94,42 +97,115 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
         return matchesText && matchesRole && matchesStatus;
     });
 
-    // Eliminar usuario (solo Admin o Comité)
-    const handleDelete = async (targetUser) => {
+    // Solicitar confirmación para eliminar o desactivar usuario (solo Admin o Comité)
+    const handleDelete = (targetUser) => {
         if (targetUser.id === currentUser?.id) {
             toast.error("No puedes eliminar tu propia cuenta en uso.");
             return;
         }
-        if (!window.confirm(`¿Estás seguro de eliminar al usuario "${targetUser.username}"?`)) return;
-        try {
-            await deleteUser(targetUser.id);
-            setUsers((current) => current.filter((u) => u.id !== targetUser.id));
-            toast.success("Usuario eliminado correctamente");
-        } catch (err) {
-            toast.error(err.response?.data?.error || "No se pudo eliminar el usuario");
+        if ((targetUser.pending_reviews_count || 0) > 0) {
+            toast.error("Este usuario tiene evaluaciones pendientes. Reasigna sus revisiones antes de eliminar o desactivar la cuenta.");
+            return;
         }
+        const hasHistory = (targetUser.completed_reviews_count || 0) > 0;
+        setPendingUserAction({
+            type: hasHistory ? "deactivate" : "delete",
+            targetUser,
+        });
     };
 
-    // Habilitar / Deshabilitar usuario (solo Admin o Comité)
-    const handleToggleActive = async (targetUser) => {
+    // Solicitar confirmación para habilitar / deshabilitar usuario (solo Admin o Comité)
+    const handleToggleActive = (targetUser) => {
         if (targetUser.id === currentUser?.id) {
             toast.error("No puedes deshabilitar tu propia cuenta.");
             return;
         }
         const newStatus = !targetUser.is_active;
-        const actionText = newStatus ? "habilitar" : "deshabilitar";
-        if (!window.confirm(`¿Estás seguro de ${actionText} la cuenta de "${targetUser.username}"?`)) return;
+        if (!newStatus && (targetUser.pending_reviews_count || 0) > 0) {
+            toast.error("Este usuario tiene evaluaciones pendientes. Reasigna sus revisiones antes de desactivar su cuenta.");
+            return;
+        }
+        setPendingUserAction({
+            type: newStatus ? "activate" : "deactivate",
+            targetUser,
+        });
+    };
 
+    // Ejecutar acción confirmada en ConfirmActionModal
+    const executeUserAction = async () => {
+        if (!pendingUserAction) return;
+        const { type, targetUser } = pendingUserAction;
+        setConfirmingUserAction(true);
         try {
-            await updateUser(targetUser.id, { is_active: newStatus });
-            setUsers((current) =>
-                current.map((u) => (u.id === targetUser.id ? { ...u, is_active: newStatus } : u))
-            );
-            toast.success(`Cuenta ${newStatus ? "habilitada" : "deshabilitada"} exitosamente`);
+            if (type === "delete") {
+                const res = await deleteUser(targetUser.id);
+                if (res.data?.deactivated) {
+                    setUsers((current) =>
+                        current.map((u) => (u.id === targetUser.id ? { ...u, is_active: false } : u))
+                    );
+                    toast.success(res.data?.message || "Cuenta desactivada para conservar el historial académico.");
+                } else {
+                    setUsers((current) => current.filter((u) => u.id !== targetUser.id));
+                    toast.success("Usuario eliminado definitivamente");
+                }
+            } else {
+                const newStatus = type === "activate";
+                await updateUser(targetUser.id, { is_active: newStatus });
+                setUsers((current) =>
+                    current.map((u) => (u.id === targetUser.id ? { ...u, is_active: newStatus } : u))
+                );
+                toast.success(`Cuenta ${newStatus ? "habilitada" : "desactivada"} exitosamente`);
+            }
+            setPendingUserAction(null);
         } catch (err) {
-            toast.error(err.response?.data?.error || `Error al ${actionText} la cuenta`);
+            toast.error(err.response?.data?.error || "No se pudo completar la acción sobre el usuario");
+        } finally {
+            setConfirmingUserAction(false);
         }
     };
+
+    const userConfirmConfig = (() => {
+        if (!pendingUserAction) return null;
+        const { type, targetUser } = pendingUserAction;
+        const hasHistory = (targetUser.completed_reviews_count || 0) > 0;
+
+        if (type === "activate") {
+            return {
+                variant: "warning",
+                title: "Habilitar cuenta de usuario",
+                message: `¿Deseas habilitar nuevamente la cuenta de "@${targetUser.username}" para permitirle iniciar sesión?`,
+                confirmText: "Habilitar cuenta",
+            };
+        }
+        if (type === "deactivate") {
+            return {
+                variant: "danger",
+                title: "Desactivar cuenta de usuario",
+                message: hasHistory ? (
+                    <>
+                        Este usuario participó en evaluaciones anteriores, por lo que su cuenta solo será{' '}
+                        <strong>desactivada</strong> para conservar el historial académico. ¿Deseas desactivar este usuario?
+                    </>
+                ) : (
+                    <>
+                        ¿Deseas desactivar la cuenta de <strong>@{targetUser.username}</strong>? El usuario no podrá iniciar sesión hasta ser habilitado nuevamente.
+                    </>
+                ),
+                confirmText: "Desactivar cuenta",
+            };
+        }
+        return {
+            variant: "danger",
+            title: "Eliminar cuenta definitivamente",
+            message: (
+                <>
+                    Esta acción eliminará permanentemente la cuenta del usuario y{' '}
+                    <strong>no se puede deshacer</strong>. ¿Estás seguro de eliminarla?
+                </>
+            ),
+            confirmText: "Eliminar definitivamente",
+        };
+    })();
 
     // Activar o desactivar un rol de un usuario desde la tabla (Admin o Comité según jerarquía)
     const handleToggleTableRole = async (targetUser, roleId) => {
@@ -630,6 +706,17 @@ export default function UserList({ refreshTrigger, onLoadingChange }) {
                     </div>
                 </div>
             )}
+
+            <ConfirmActionModal
+                isOpen={Boolean(pendingUserAction)}
+                onClose={() => !confirmingUserAction && setPendingUserAction(null)}
+                onConfirm={executeUserAction}
+                variant={userConfirmConfig?.variant || "danger"}
+                title={userConfirmConfig?.title}
+                message={userConfirmConfig?.message}
+                confirmText={userConfirmConfig?.confirmText}
+                loading={confirmingUserAction}
+            />
         </div>
     );
 }

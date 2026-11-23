@@ -12,14 +12,16 @@ const ROLE_DESCRIPTIONS = {
     "Autor": "Postulación de artículos, subida de versiones y seguimiento.",
 };
 
+const bypassCaptcha = import.meta.env.VITE_BYPASS_CAPTCHA === "true";
+
 export default function LoginForm() {
     const navigate = useNavigate();
     const [credentials, setCredentials] = useState({ 
         email: "", 
         password: "", 
-        captcha_input: "" 
+        captcha_input: bypassCaptcha ? "BYPAS" : "" 
     });
-    const [captchaKey, setCaptchaKey] = useState("");
+    const [captchaKey, setCaptchaKey] = useState(bypassCaptcha ? "bypass-dev-token" : "");
     const [captchaSvg, setCaptchaSvg] = useState("");
     const [captchaLoading, setCaptchaLoading] = useState(false);
     const [error, setError] = useState("");
@@ -31,12 +33,16 @@ export default function LoginForm() {
         setCaptchaLoading(true);
         try {
             const res = await getCaptcha();
-            setCaptchaKey(res.data.captcha_key);
+            setCaptchaKey(bypassCaptcha ? "bypass-dev-token" : res.data.captcha_key);
             setCaptchaSvg(res.data.captcha_svg);
-            // Limpia el input del captcha para que el usuario escriba el nuevo
-            setCredentials((prev) => ({ ...prev, captcha_input: "" }));
+            // En modo pruebas autocompleta el CAPTCHA; en modo normal lo limpia
+            setCredentials((prev) => ({ ...prev, captcha_input: bypassCaptcha ? "BYPAS" : "" }));
         } catch (err) {
             console.error("Error al cargar el CAPTCHA:", err);
+            if (bypassCaptcha) {
+                setCaptchaKey("bypass-dev-token");
+                setCredentials((prev) => ({ ...prev, captcha_input: "BYPAS" }));
+            }
         } finally {
             setCaptchaLoading(false);
         }
@@ -179,12 +185,19 @@ export default function LoginForm() {
                         </div>
                         {/* Campo: CAPTCHA de Seguridad */}
                         <div className="rounded-xl border border-gray-200 bg-slate-50/60 p-3.5">
-                            <label
-                                htmlFor="captcha_input"
-                                className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500"
-                            >
-                                Verificación de seguridad (CAPTCHA)
-                            </label>
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <label
+                                    htmlFor="captcha_input"
+                                    className="block text-xs font-semibold uppercase tracking-wider text-gray-500"
+                                >
+                                    Verificación de seguridad (CAPTCHA)
+                                </label>
+                                {bypassCaptcha && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                        Modo pruebas: CAPTCHA autocompletado
+                                    </span>
+                                )}
+                            </div>
                             <div className="mb-3 flex items-center gap-3">
                                 {captchaSvg ? (
                                     <div

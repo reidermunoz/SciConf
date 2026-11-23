@@ -1,5 +1,6 @@
 import json
 from django.db import transaction
+from django.http import FileResponse
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from django.db.models import Q
@@ -144,13 +145,25 @@ class ArticleViewSet(viewsets.ModelViewSet):
                         for coauthor in coauthors_data
                     ])
             if initial_pdf:
-                ArticleVersion.objects.create(
-                    article=article,
-                    version_type=VersionType.INICIAL,
-                    file=initial_pdf
-                )
+                self._replace_version(article, VersionType.INICIAL, initial_pdf)
 
         return Response(self.get_serializer(article).data)
+
+    def _replace_version(self, article, version_type, file, copyright_file=None):
+        """Reemplaza la versión existente del mismo tipo (eliminando archivos anteriores)."""
+        existing = article.versions.filter(version_type=version_type)
+        for old_ver in existing:
+            if old_ver.file:
+                old_ver.file.delete(save=False)
+            if old_ver.copyright_file:
+                old_ver.copyright_file.delete(save=False)
+        existing.delete()
+        return ArticleVersion.objects.create(
+            article=article,
+            version_type=version_type,
+            file=file,
+            copyright_file=copyright_file,
+        )
 
     # Subida de versiones PDF
     @action(detail=True, methods=['post'], url_path='upload-version')
@@ -190,13 +203,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': 'Tipo de versión no válido.'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Crear registro de versión
-        version = ArticleVersion.objects.create(
-            article=article,
-            version_type=version_type,
-            file=file,
-            copyright_file=copyright_file
-        )
+        # Si se sube o reemplaza versión INICIAL, sustituye la anterior en lugar de acumularla
+        if version_type == VersionType.INICIAL:
+            version = self._replace_version(article, version_type, file, copyright_file)
+        else:
+            version = ArticleVersion.objects.create(
+                article=article,
+                version_type=version_type,
+                file=file,
+                copyright_file=copyright_file
+            )
         
         article.save(update_fields=['status'])
         return Response({
@@ -351,26 +367,49 @@ class ArticleReviewViewSet(viewsets.ModelViewSet):
             'review': ArticleReviewSerializer(review, context={'request': request}).data,
         })
     
-    # Aval para publicación
+    # Aval para publicación (1 solo miembro del Comité Científico)
     @action(detail=True, methods=['post'], url_path='endorse-publication')
     def endorse_publication(self, request, pk=None):
         review = self.get_object()
         
         if review.evaluator != request.user and not has_role(request.user, ROLE_ADMIN):
             return Response({'error': 'No tienes permiso para emitir este aval.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if review.article.status == ArticleStatus.CON_AVAL_PUBLICACION:
+            return Response(
+                {'error': 'El artículo ya cuenta con aval para publicación.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        has_final_with_copyright = (
+            review.article.versions
+            .filter(version_type=VersionType.FINAL, copyright_file__isnull=False)
+            .exclude(copyright_file='')
+            .exists()
+        )
+        if review.article.status != ArticleStatus.FINAL_ENTREGADO or not has_final_with_copyright:
+            return Response(
+                {'error': 'El aval de publicación solo está disponible cuando el artículo está en estado FINAL_ENTREGADO con su PDF final y copyright firmado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         review.publication_endorsement = True
         review.publication_endorsed_at = timezone.now()
         review.save()
         check_and_update_endorsements(review.article)
+        review = self.get_object()
+
         return Response({
             'message': 'Aval para publicación emitido correctamente.',
-            'article_status': review.article.status
+            'article_status': review.article.status,
+            'review': ArticleReviewSerializer(review, context={'request': request}).data,
         })
     
 class ConferenceDeadlineViewSet(viewsets.ModelViewSet):
-    """Consulta y configuración de fechas límite de la conferencia."""
+    """Consulta y configuración de fechas límite y plantilla de copyright de la conferencia."""
     queryset = ConferenceDeadline.objects.all()
     serializer_class = ConferenceDeadlineSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
@@ -381,4 +420,28 @@ class ConferenceDeadlineViewSet(viewsets.ModelViewSet):
         deadline = ConferenceDeadline.objects.first()
         if not deadline:
             return Response({'detail': 'No se han configurado fechas límite.'}, status=status.HTTP_200_OK)
-        return Response(ConferenceDeadlineSerializer(deadline).data)
+        return Response(ConferenceDeadlineSerializer(deadline, context={'request': request}).data)
+
+    def create(self, request, *args, **kwargs):
+        existing = ConferenceDeadline.objects.first()
+        if existing:
+            serializer = self.get_serializer(existing, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='copyright-template')
+    def copyright_template(self, request):
+        deadline = ConferenceDeadline.objects.first()
+        if not deadline or not deadline.copyright_template:
+            return Response(
+                {'error': 'No hay plantilla oficial de copyright cargada.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        return FileResponse(
+            deadline.copyright_template.open('rb'),
+            as_attachment=True,
+            filename='plantilla_copyright.pdf',
+            content_type='application/pdf',
+        )
