@@ -58,7 +58,9 @@ SciConf/
 │   │   ├── routes/            # Configuración de rutas públicas y privadas (RoutesProjects.jsx)
 │   │   └── schemas/           # Esquemas de validación con Zod (userSchema.js)
 ├── manage.py                  # CLI de gestión de Django
-├── requirements.txt           # Dependencias de Python (Django, DRF, SimpleJWT, psycopg2, dotenv)
+├── tests_selenium/            # Pruebas E2E automatizadas con Selenium
+│   └── test_e2e_sciconf.py    # Suite de pruebas E2E (ej. HU Deshabilitar Artículo)
+├── requirements.txt           # Dependencias de Python (Django, DRF, SimpleJWT, psycopg2, dotenv, selenium)
 ├── .env.example               # Plantilla de variables de entorno
 └── .env                       # Variables de entorno locales (NO subir a Git)
 ```
@@ -279,8 +281,65 @@ La plataforma cuenta con 3 roles predefinidos según los requerimientos del proy
 El proyecto está configurado para ejecutar pruebas unitarias en una base de datos SQLite en memoria (sin afectar ni requerir conexión a Supabase):
 
 ```powershell
-.\venv\Scripts\python manage.py test users
+.\venv\Scripts\python.exe manage.py test
 ```
+*(Para correr solo un módulo: `.\venv\Scripts\python.exe manage.py test users` o `articles`)*
+
+---
+
+## 🧪 Pruebas E2E con Selenium (Guía paso a paso para el equipo)
+
+El proyecto cuenta con pruebas automatizadas de navegador en `tests_selenium/test_e2e_sciconf.py` usando **Selenium 4** (no requiere descargar `chromedriver.exe` manualmente, Selenium Manager lo gestiona automáticamente si tienes **Google Chrome** instalado).
+
+### Paso 1: Instalar dependencias y aplicar migraciones
+Con el entorno virtual activado:
+```powershell
+pip install -r requirements.txt
+.\venv\Scripts\python.exe manage.py migrate
+```
+
+### Paso 2: Habilitar el bypass de CAPTCHA para pruebas locales
+1. En el archivo `.env` de la raíz, asegúrate de tener:
+   ```env
+   DEBUG=True
+   BYPASS_CAPTCHA=True
+   ```
+2. En `frontend/.env`, asegúrate de tener:
+   ```env
+   VITE_BYPASS_CAPTCHA=true
+   ```
+*(En producción ambos deben ir en `False` / `false` para exigir CAPTCHA real).*
+
+### Paso 3: Levantar Backend y Frontend
+Abre dos terminales en la raíz del proyecto:
+- **Terminal 1 (Django API):**
+  ```powershell
+  .\venv\Scripts\python.exe manage.py runserver
+  ```
+- **Terminal 2 (React / Vite):**
+  ```powershell
+  npm --prefix frontend run dev
+  ```
+
+### Paso 4: Configurar credenciales y ejecutar Selenium
+En una **tercera terminal** (PowerShell), define las variables de entorno con usuarios reales de tu base de datos y ejecuta la suite:
+```powershell
+$env:SELENIUM_ADMIN_USER="correo_admin@sciconf.com"
+$env:SELENIUM_ADMIN_PASSWORD="tu_password_admin"
+$env:SELENIUM_COMMITTEE_USER="correo_comite@sciconf.com"
+$env:SELENIUM_COMMITTEE_PASSWORD="tu_password_comite"
+# Opcional: título exacto o parcial del artículo de prueba que deseas deshabilitar
+$env:SELENIUM_ARTICLE_TITLE="Mi articulo de prueba"
+# Opcional: ejecutar sin abrir ventana del navegador
+# $env:SELENIUM_HEADLESS="true"
+
+.\venv\Scripts\python.exe -m unittest tests_selenium/test_e2e_sciconf.py -v
+```
+
+### ¿Qué validan estas pruebas?
+- `test_01_solo_comite_puede_deshabilitar_admin_no_ve_boton`: Verifica que el rol Administrador no visualiza el botón `Deshabilitar` en `/articles`.
+- `test_02_comite_deshabilita_articulo_con_confirmacion_y_desaparece`: Inicia sesión como Miembro del Comité Científico, valida que el motivo sea obligatorio, confirma la acción irreversible en `ConfirmActionModal` y comprueba que el artículo desaparece de los listados sin opción de rehabilitarse.
+- *(Nota: si el usuario tiene múltiples roles, la prueba selecciona automáticamente el rol correspondiente en el modal de inicio de sesión).*
 
 ---
 
